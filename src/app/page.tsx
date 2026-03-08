@@ -1704,7 +1704,7 @@ export default function FieldFlowApp() {
   const currentUser = users.find((u: any) => u.id === currentUserId) || null;
 
   const renderContent = () => {
-    const dashboardProps = { onSelectJob: handleSelectJob, onNavigate: handleSetView };
+    const dashboardProps = { onSelectJob: handleSelectJob, onNavigate: handleSetView as (view: string) => void };
     switch (currentView) {
       case "dashboard": return <Dashboard {...dashboardProps} />;
       case "jobs": return <JobsView onSelectJob={handleSelectJob} />;

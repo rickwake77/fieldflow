@@ -1,0 +1,213 @@
+// prisma/schema.prisma
+// FieldFlow - Farm Contracting Management
+// Matches the existing AWS RDS PostgreSQL schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// CORE TABLES
+// ============================================================
+
+model Organisation {
+  id        Int       @id @default(autoincrement())
+  name      String
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  users     User[]
+  jobTypes  JobType[]
+  machines  Machine[]
+
+  @@map("organisations")
+}
+
+model User {
+  id              Int           @id @default(autoincrement())
+  organisationId  Int           @map("organisation_id")
+  name            String
+  username        String?       @unique
+  email           String?       @unique
+  phone           String?
+  passwordHash    String?       @map("password_hash")
+  role            UserRole      @default(contractor)
+  active          Boolean       @default(true)
+  magicToken      String?       @map("magic_token")
+  magicTokenExp   DateTime?     @map("magic_token_exp")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  organisation    Organisation  @relation(fields: [organisationId], references: [id])
+  assignedJobs    Job[]         @relation("AssignedJobs")
+  createdJobs     Job[]         @relation("CreatedJobs")
+  jobLogs         JobLog[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  admin
+  job_admin
+  contractor
+}
+
+model Customer {
+  id        Int       @id @default(autoincrement())
+  name      String
+  contact   String?
+  phone     String?
+  email     String?
+  address   String?
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  fields    Field[]
+  jobs      Job[]
+  invoices  Invoice[]
+
+  @@map("customers")
+}
+
+model Field {
+  id             Int       @id @default(autoincrement())
+  customerId     Int       @map("customer_id")
+  fieldName      String    @map("field_name")
+  hectares       Decimal   @db.Decimal(10, 2)
+  boundaryGeojson String?  @map("boundary_gjoson") @db.Text
+  notes          String?   @db.Text
+
+  customer       Customer  @relation(fields: [customerId], references: [id])
+  jobs           Job[]
+
+  @@map("fields")
+}
+
+model JobType {
+  id              Int           @id @default(autoincrement())
+  organisationId  Int           @map("organisation_id")
+  name            String
+  billingUnit     String        @map("billing_unit")
+  defaultRate     Decimal       @map("default_rate") @db.Decimal(10, 2)
+  description     String?       @db.Text
+
+  organisation    Organisation  @relation(fields: [organisationId], references: [id])
+  jobs            Job[]
+
+  @@map("job_types")
+}
+
+model Machine {
+  id              Int           @id @default(autoincrement())
+  organisationId  Int           @map("organisation_id")
+  name            String
+  machineType     String        @map("machine_type")
+  registration    String?
+  active          Boolean       @default(true)
+
+  organisation    Organisation  @relation(fields: [organisationId], references: [id])
+  jobLogs         JobLog[]
+
+  @@map("machines")
+}
+
+// ============================================================
+// JOBS & LOGGING
+// ============================================================
+
+model Job {
+  id                Int           @id @default(autoincrement())
+  customerId        Int           @map("customer_id")
+  fieldId           Int?          @map("field_id")
+  jobTypeId         Int           @map("job_type_id")
+  assignedToUserId  Int?          @map("assigned_to_user_id")
+  title             String
+  description       String?       @db.Text
+  plannedDate       DateTime?     @map("planned_date") @db.Date
+  estimatedQuantity Decimal?      @map("estimated_quantity") @db.Decimal(10, 2)
+  unitType          String?       @map("unit_type")
+  status            JobStatus     @default(scheduled)
+  createdBy         Int?          @map("created_by")
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  customer          Customer      @relation(fields: [customerId], references: [id])
+  field             Field?        @relation(fields: [fieldId], references: [id])
+  jobType           JobType       @relation(fields: [jobTypeId], references: [id])
+  assignedTo        User?         @relation("AssignedJobs", fields: [assignedToUserId], references: [id])
+  createdByUser     User?         @relation("CreatedJobs", fields: [createdBy], references: [id])
+  jobLogs           JobLog[]
+  invoiceItems      InvoiceItem[]
+
+  @@map("jobs")
+}
+
+enum JobStatus {
+  scheduled
+  in_progress
+  completed
+  cancelled
+}
+
+model JobLog {
+  id                Int       @id @default(autoincrement())
+  jobId             Int       @map("job_id")
+  contractorId      Int       @map("contractor_id")
+  machineId         Int?      @map("machine_id")
+  quantityCompleted Decimal   @map("quantity_completed") @db.Decimal(10, 2)
+  hoursWorked       Decimal   @map("hours_worked") @db.Decimal(6, 2)
+  notes             String?   @db.Text
+  photoUrl          String?   @map("photo_url")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  job               Job       @relation(fields: [jobId], references: [id])
+  contractor        User      @relation(fields: [contractorId], references: [id])
+  machine           Machine?  @relation(fields: [machineId], references: [id])
+
+  @@map("job_logs")
+}
+
+// ============================================================
+// INVOICING
+// ============================================================
+
+model Invoice {
+  id            Int           @id @default(autoincrement())
+  customerId    Int           @map("customer_id")
+  invoiceNumber String        @unique @map("invoice_number")
+  invoiceDate   DateTime      @map("invoice_date") @db.Date
+  dueDate       DateTime      @map("due_date") @db.Date
+  status        InvoiceStatus @default(draft)
+  subtotal      Decimal       @db.Decimal(10, 2)
+  vat           Decimal       @db.Decimal(10, 2)
+  total         Decimal       @db.Decimal(10, 2)
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  customer      Customer      @relation(fields: [customerId], references: [id])
+  items         InvoiceItem[]
+
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  draft
+  sent
+  paid
+  overdue
+}
+
+model InvoiceItem {
+  id          Int     @id @default(autoincrement())
+  invoiceId   Int     @map("invoice_id")
+  jobId       Int?    @map("job_id")
+  description String
+  quantity    Decimal @db.Decimal(10, 2)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(10, 2)
+  totalPrice  Decimal @map("total_price") @db.Decimal(10, 2)
+
+  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+  job         Job?    @relation(fields: [jobId], references: [id])
+
+  @@map("invoice_items")
+}

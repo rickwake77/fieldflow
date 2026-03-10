@@ -168,29 +168,29 @@ function Spinner() {
 // ============================================================
 // DASHBOARD
 // ============================================================
-function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => void; onNavigate?: (view: string) => void }) {
+function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => void; onNavigate?: (view: string, filter?: string) => void }) {
   const { jobs, invoices, users, customers } = useApp();
   const active = jobs.filter((j: any) => j.status !== "completed" && j.status !== "cancelled");
   const completed = jobs.filter((j: any) => j.status === "completed");
   const totalInvoiced = invoices.reduce((s: number, i: any) => s + Number(i.total), 0);
   const unpaid = invoices.filter((i: any) => i.status !== "paid");
-  const contractors = users.filter((u: any) => u.role === "contractor");
+  const teamMembers = users.filter((u: any) => u.role === "contractor" || u.role === "job_admin");
 
   return (
     <div>
       <PageHeader title="Dashboard" subtitle="Overview of your contracting business" />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div className="cursor-pointer" onClick={() => onNavigate?.("jobs")}>
+        <div className="cursor-pointer" onClick={() => onNavigate?.("jobs", "active")}>
           <StatCard value={active.length} label="Active Jobs" color="text-field-700" />
         </div>
-        <div className="cursor-pointer" onClick={() => onNavigate?.("jobs")}>
+        <div className="cursor-pointer" onClick={() => onNavigate?.("jobs", "completed")}>
           <StatCard value={completed.length} label="Completed Jobs" color="text-emerald-600" />
         </div>
         <div className="cursor-pointer" onClick={() => onNavigate?.("invoices")}>
           <StatCard value={fmtCurrency(totalInvoiced)} label="Invoiced" color="text-harvest-600" />
         </div>
-        <div className="cursor-pointer" onClick={() => onNavigate?.("invoices")}>
+        <div className="cursor-pointer" onClick={() => onNavigate?.("invoices", "unpaid")}>
           <StatCard value={unpaid.length} label="Unpaid Invoices" color="text-red-600" />
         </div>
       </div>
@@ -220,7 +220,7 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
             <button onClick={() => onNavigate?.("team")} className="text-xs font-semibold text-field-700 hover:underline">Manage</button>
           </div>
           <div className="space-y-1">
-            {contractors.map((user: any) => {
+            {teamMembers.map((user: any) => {
               const userJobs = jobs.filter((j: any) => j.assignedTo?.id === user.id && j.status !== "completed");
               return (
                 <div key={user.id} className="flex justify-between items-center gap-3 py-2.5 border-b border-stone-100 last:border-0">
@@ -247,9 +247,9 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
 // ============================================================
 // JOBS
 // ============================================================
-function JobsView({ onSelectJob }: { onSelectJob: (job: any) => void }) {
+function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => void; initialFilter?: string }) {
   const { jobs, customers, fields, jobTypes, users, machines, refresh } = useApp();
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState(initialFilter || "all");
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
@@ -257,8 +257,8 @@ function JobsView({ onSelectJob }: { onSelectJob: (job: any) => void }) {
     title: "", description: "", plannedDate: "", estimatedQuantity: "", unitType: "",
   });
 
-  const filtered = filter === "all" ? jobs : jobs.filter((j: any) => j.status === filter);
-  const contractors = users.filter((u: any) => u.role === "contractor");
+  const filtered = filter === "all" ? jobs : (filter === "active" ? jobs.filter((j: any) => j.status === "scheduled" || j.status === "in_progress") : jobs.filter((j: any) => j.status === filter));
+  const assignableUsers = users.filter((u: any) => u.active);
   const customerFields = form.customerId ? fields.filter((f: any) => f.customer?.id === Number(form.customerId)) : [];
 
   // Auto-set unit type when job type selected
@@ -299,10 +299,10 @@ function JobsView({ onSelectJob }: { onSelectJob: (job: any) => void }) {
       />
 
       <div className="flex gap-1.5 mb-5 flex-wrap">
-        {["all", "scheduled", "in_progress", "completed"].map(f => (
+        {["all", "active", "scheduled", "in_progress", "completed"].map(f => (
           <button key={f} onClick={() => setFilter(f)}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${filter === f ? "bg-field-100 text-field-700" : "text-stone-500 hover:bg-stone-100"}`}>
-            {f === "all" ? "All" : statusLabel(f)}
+            {f === "all" ? "All" : f === "active" ? "Active" : statusLabel(f)}
           </button>
         ))}
       </div>
@@ -375,7 +375,7 @@ function JobsView({ onSelectJob }: { onSelectJob: (job: any) => void }) {
         <FormField label="Assign To">
           <select className={inputClass} value={form.assignedToUserId} onChange={e => setForm(f => ({ ...f, assignedToUserId: e.target.value }))}>
             <option value="">Unassigned</option>
-            {contractors.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            {assignableUsers.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
         </FormField>
         <FormField label="Title" required>
@@ -438,7 +438,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
   const totalHrs = logs.reduce((s: number, l: any) => s + Number(l.hoursWorked), 0);
   const estHrs = Number(job.estimatedQuantity || 0);
   const progress = estHrs > 0 ? Math.min(100, Math.round((totalHrs / estHrs) * 100)) : 0;
-  const contractors = users.filter((u: any) => u.role === "contractor");
+  const assignableUsers = users.filter((u: any) => u.active);
 
   const openEdit = () => {
     setEditForm({
@@ -475,7 +475,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
     try {
       const result = await api.createJobLog({
         jobId: job.id,
-        contractorId: job.assignedTo?.id || contractors[0]?.id,
+        contractorId: job.assignedTo?.id || assignableUsers[0]?.id,
         machineId: logForm.machineId ? Number(logForm.machineId) : undefined,
         quantityCompleted: Number(logForm.quantityCompleted),
         hoursWorked: Number(logForm.hoursWorked),
@@ -649,7 +649,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
         <FormField label="Assigned To">
           <select className={inputClass} value={editForm.assignedToUserId} onChange={e => setEditForm(f => ({ ...f, assignedToUserId: e.target.value }))}>
             <option value="">Unassigned</option>
-            {contractors.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            {assignableUsers.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
         </FormField>
         <div className="grid grid-cols-2 gap-3">
@@ -915,12 +915,15 @@ function CustomersView() {
 // ============================================================
 // INVOICES
 // ============================================================
-function InvoicesView() {
+function InvoicesView({ initialFilter }: { initialFilter?: string }) {
   const { invoices, customers, jobs, refresh } = useApp();
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState("");
   const [selectedJobIds, setSelectedJobIds] = useState<number[]>([]);
+  const [filter, setFilter] = useState(initialFilter || "all");
+
+  const filteredInvoices = filter === "all" ? invoices : (filter === "unpaid" ? invoices.filter((i: any) => i.status !== "paid") : invoices.filter((i: any) => i.status === filter));
 
   const completedJobs = selectedCustomer
     ? jobs.filter((j: any) => j.customer?.id === Number(selectedCustomer) && j.status === "completed")
@@ -964,7 +967,16 @@ function InvoicesView() {
         action={<Btn onClick={() => setShowCreate(true)}>+ Generate Invoice</Btn>}
       />
 
-      {invoices.length > 0 ? (
+      <div className="flex gap-1.5 mb-5 flex-wrap">
+        {["all", "unpaid", "draft", "sent", "paid"].map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${filter === f ? "bg-field-100 text-field-700" : "text-stone-500 hover:bg-stone-100"}`}>
+            {f === "all" ? "All" : f === "unpaid" ? "Unpaid" : statusLabel(f)}
+          </button>
+        ))}
+      </div>
+
+      {filteredInvoices.length > 0 ? (
         <>
           {/* Desktop table */}
           <Card className="overflow-hidden hidden lg:block">
@@ -977,7 +989,7 @@ function InvoicesView() {
                 </tr>
               </thead>
               <tbody>
-                {invoices.map((inv: any) => (
+                {filteredInvoices.map((inv: any) => (
                   <tr key={inv.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50 transition">
                     <td className="px-4 py-3 font-semibold text-sm font-mono">{inv.invoiceNumber}</td>
                     <td className="px-4 py-3 text-sm">{inv.customer?.name}</td>
@@ -1005,7 +1017,7 @@ function InvoicesView() {
 
           {/* Mobile cards */}
           <div className="lg:hidden space-y-2.5">
-            {invoices.map((inv: any) => (
+            {filteredInvoices.map((inv: any) => (
               <Card key={inv.id} className="p-4">
                 <div className="flex justify-between items-start mb-2">
                   <div>
@@ -1682,9 +1694,18 @@ export default function FieldFlowApp() {
     setCurrentView("jobs");
   };
 
+  const [viewFilter, setViewFilter] = useState<string | undefined>(undefined);
+
   const handleSetView = (v: ViewId) => {
     setSelectedJobId(null);
+    setViewFilter(undefined);
     setCurrentView(v);
+  };
+
+  const handleNavigateWithFilter = (view: string, filter?: string) => {
+    setSelectedJobId(null);
+    setViewFilter(filter);
+    setCurrentView(view as ViewId);
   };
 
   if (sessionStatus === "loading" || (sessionStatus === "authenticated" && loading)) {
@@ -1704,13 +1725,13 @@ export default function FieldFlowApp() {
   const currentUser = users.find((u: any) => u.id === currentUserId) || null;
 
   const renderContent = () => {
-    const dashboardProps = { onSelectJob: handleSelectJob, onNavigate: handleSetView as (view: string) => void };
+    const dashboardProps = { onSelectJob: handleSelectJob, onNavigate: handleNavigateWithFilter };
     switch (currentView) {
       case "dashboard": return <Dashboard {...dashboardProps} />;
-      case "jobs": return <JobsView onSelectJob={handleSelectJob} />;
+      case "jobs": return <JobsView onSelectJob={handleSelectJob} initialFilter={viewFilter} />;
       case "job-detail": return selectedJobId ? <JobDetail jobId={selectedJobId} onBack={handleBackToJobs} /> : <JobsView onSelectJob={handleSelectJob} />;
       case "customers": return <CustomersView />;
-      case "invoices": return isAdmin ? <InvoicesView /> : <Dashboard {...dashboardProps} />;
+      case "invoices": return isAdmin ? <InvoicesView initialFilter={viewFilter} /> : <Dashboard {...dashboardProps} />;
       case "job-types": return <JobTypesView />;
       case "machines": return <MachinesView />;
       case "team": return isAdmin ? <TeamView /> : <Dashboard {...dashboardProps} />;

@@ -605,29 +605,77 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
         </div>
       )}
 
-      {/* Log Work Modal */}
-      <Modal isOpen={showLogForm} onClose={() => setShowLogForm(false)} title="Log Work">
-        <FormField label="Machine">
-          <select className={inputClass} value={logForm.machineId} onChange={e => setLogForm(f => ({ ...f, machineId: e.target.value }))}>
-            <option value="">Select machine...</option>
-            {machines.filter((m: any) => m.active).map((m: any) => (
-              <option key={m.id} value={m.id}>{m.name} ({m.registration})</option>
-            ))}
-          </select>
-        </FormField>
-        <FormField label={`Qty (${job.unitType || "units"})`} required>
-          <input className={inputClass} type="number" step="0.1" placeholder="0" value={logForm.quantityCompleted} onChange={e => setLogForm(f => ({ ...f, quantityCompleted: e.target.value }))} />
-        </FormField>
-        <FormField label="Notes">
-          <textarea className={inputClass} placeholder="Conditions, issues, anything to note..." rows={3} value={logForm.notes} onChange={e => setLogForm(f => ({ ...f, notes: e.target.value }))} />
-        </FormField>
-        <div className="flex gap-2 mt-2">
-          <Btn variant="ghost" className="flex-1" onClick={() => setShowLogForm(false)}>Cancel</Btn>
-          <Btn className="flex-[2]" onClick={handleLogWork} disabled={logSaving || !logForm.quantityCompleted}>
-            {logSaving ? "Saving..." : "Save Log"}
-          </Btn>
+      {/* Log Work Modal — full-screen on mobile, standard on desktop */}
+      {showLogForm && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center" onClick={() => setShowLogForm(false)}>
+          <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl overflow-y-auto sm:max-h-[90vh] p-6 sm:p-6 animate-[slideUp_0.3s_ease-out]" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold" style={{ fontFamily: "Georgia, serif" }}>Log Work</h2>
+              <button onClick={() => setShowLogForm(false)} className="text-stone-400 hover:text-stone-600 p-2">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            {/* Machine */}
+            <div className="mb-5">
+              <label className="block text-sm font-bold text-stone-600 mb-2">Machine</label>
+              <select
+                className="w-full px-4 py-4 border-2 border-stone-300 rounded-xl text-base bg-white focus:outline-none focus:border-field-500 transition"
+                value={logForm.machineId}
+                onChange={e => setLogForm(f => ({ ...f, machineId: e.target.value }))}
+              >
+                <option value="">Select machine...</option>
+                {machines.filter((m: any) => m.active).map((m: any) => (
+                  <option key={m.id} value={m.id}>{m.name} ({m.registration})</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Qty */}
+            <div className="mb-5">
+              <label className="block text-sm font-bold text-stone-600 mb-2">
+                Qty ({job.unitType || "units"}) <span className="text-red-500">*</span>
+              </label>
+              <input
+                className="w-full px-4 py-4 border-2 border-stone-300 rounded-xl text-2xl font-bold text-center bg-white focus:outline-none focus:border-field-500 transition"
+                type="number" step="0.1" inputMode="decimal" placeholder="0"
+                value={logForm.quantityCompleted}
+                onChange={e => setLogForm(f => ({ ...f, quantityCompleted: e.target.value }))}
+              />
+            </div>
+
+            {/* Notes */}
+            <div className="mb-6">
+              <label className="block text-sm font-bold text-stone-600 mb-2">Notes</label>
+              <textarea
+                className="w-full px-4 py-3 border-2 border-stone-300 rounded-xl text-base bg-white focus:outline-none focus:border-field-500 transition"
+                placeholder="Conditions, issues, anything to note..."
+                rows={3}
+                value={logForm.notes}
+                onChange={e => setLogForm(f => ({ ...f, notes: e.target.value }))}
+              />
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLogForm(false)}
+                className="flex-1 py-4 rounded-xl text-base font-semibold text-stone-500 bg-stone-100 hover:bg-stone-200 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleLogWork}
+                disabled={logSaving || !logForm.quantityCompleted}
+                className="flex-[2] py-4 rounded-xl text-base font-semibold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm"
+              >
+                {logSaving ? "Saving..." : "Save Log"}
+              </button>
+            </div>
+          </div>
         </div>
-      </Modal>
+      )}
 
       {/* Edit Job Modal */}
       <Modal isOpen={showEditForm} onClose={() => setShowEditForm(false)} title="Edit Job">

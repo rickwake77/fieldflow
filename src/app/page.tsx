@@ -1710,7 +1710,7 @@ function Sidebar({ currentView, setView, session }: { currentView: ViewId; setVi
     <aside className="fixed left-0 top-0 bottom-0 w-64 bg-field-900 text-white hidden lg:flex flex-col z-50">
       <div className="px-5 py-6 border-b border-white/10">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-harvest-500 flex items-center justify-center font-extrabold text-base text-white">F</div>
+          <img src="/logo.png" alt="FieldFlow" className="w-10 h-10 rounded-xl object-cover" />
           <div>
             <div className="font-bold text-base" style={{ fontFamily: "Helvetica, Arial, sans-serif" }}>FieldFlow</div>
             <div className="text-[10px] text-white/40">Farm Contracting</div>
@@ -1859,7 +1859,7 @@ export default function FieldFlowApp() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="w-12 h-12 rounded-xl bg-harvest-500 flex items-center justify-center font-extrabold text-2xl text-white mx-auto mb-3" style={{ fontFamily: "Georgia, serif" }}>F</div>
+          <img src="/logo.png" alt="FieldFlow" className="w-16 h-16 rounded-2xl object-cover mx-auto mb-3" />
           <div className="text-lg font-bold text-stone-700 mb-2" style={{ fontFamily: "Georgia, serif" }}>FieldFlow</div>
           <div className="w-6 h-6 border-2 border-field-200 border-t-field-600 rounded-full animate-spin mx-auto" />
         </div>
@@ -1898,7 +1898,7 @@ export default function FieldFlowApp() {
         {/* Mobile header */}
         <header className="sticky top-0 z-40 bg-white border-b border-stone-200 px-4 py-3 flex justify-between items-center lg:hidden">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-harvest-500 flex items-center justify-center font-extrabold text-sm text-white">F</div>
+            <img src="/logo.png" alt="FieldFlow" className="w-7 h-7 rounded-lg object-cover" />
             <span className="font-bold" style={{ fontFamily: "Georgia, serif" }}>FieldFlow</span>
           </div>
           <div className="flex items-center gap-2">

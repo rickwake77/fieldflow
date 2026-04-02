@@ -63,7 +63,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-harvest-500 flex items-center justify-center font-extrabold text-3xl text-white mx-auto mb-3" style={{ fontFamily: "Georgia, serif" }}>F</div>
+          <img src="/logo.png" alt="FieldFlow" className="w-14 h-14 rounded-2xl object-cover mx-auto mb-3" />
           <h1 className="text-3xl font-bold text-white" style={{ fontFamily: "Georgia, serif" }}>FieldFlow</h1>
           <p className="text-white/50 text-sm mt-1">Farm Contracting Management</p>
         </div>

@@ -312,7 +312,7 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
         <table className="w-full">
           <thead>
             <tr className="border-b-2 border-stone-200">
-              {["Job", "Customer", "Field", "Type", "Assigned To", "Date", "Est. Hrs", "Status"].map(h => (
+              {["Job", "Customer", "Field", "Type", "Assigned To", "Date", "Est. Qty", "Status"].map(h => (
                 <th key={h} className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-stone-500">{h}</th>
               ))}
             </tr>
@@ -326,7 +326,7 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
                 <td className="px-4 py-3 text-sm">{job.jobType?.name}</td>
                 <td className="px-4 py-3 text-sm">{job.assignedTo?.name || "—"}</td>
                 <td className="px-4 py-3 text-sm">{fmtDate(job.plannedDate)}</td>
-                <td className="px-4 py-3 text-sm font-mono">{job.estimatedQuantity ? `${Number(job.estimatedQuantity)} hrs` : "—"}</td>
+                <td className="px-4 py-3 text-sm font-mono">{job.estimatedQuantity ? `${Number(job.estimatedQuantity)} ${job.unitType || "units"}` : "—"}</td>
                 <td className="px-4 py-3"><StatusBadge status={job.status} /></td>
               </tr>
             ))}
@@ -345,7 +345,7 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
             </div>
             <div className="text-xs text-stone-500 space-y-0.5">
               <div className="truncate">{job.customer?.name}{job.field?.fieldName ? ` · ${job.field.fieldName}` : ""}</div>
-              <div>{fmtDate(job.plannedDate)} · {job.estimatedQuantity ? `${Number(job.estimatedQuantity)} hrs` : ""}</div>
+              <div>{fmtDate(job.plannedDate)} · {job.estimatedQuantity ? `${Number(job.estimatedQuantity)} ${job.unitType || "units"}` : ""}</div>
             </div>
           </Card>
         ))}
@@ -385,7 +385,7 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
           <FormField label="Planned Date">
             <input className={inputClass} type="date" value={form.plannedDate} onChange={e => setForm(f => ({ ...f, plannedDate: e.target.value }))} />
           </FormField>
-          <FormField label="Estimated Hours">
+          <FormField label={`Estimated Qty${form.unitType ? ` (${form.unitType}s)` : ""}`}>
             <input className={inputClass} type="number" step="0.25" placeholder="0" value={form.estimatedQuantity} onChange={e => setForm(f => ({ ...f, estimatedQuantity: e.target.value }))} />
           </FormField>
         </div>
@@ -435,9 +435,8 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
 
   const logs = job.jobLogs || [];
   const totalQty = logs.reduce((s: number, l: any) => s + Number(l.quantityCompleted), 0);
-  const totalHrs = logs.reduce((s: number, l: any) => s + Number(l.hoursWorked), 0);
-  const estHrs = Number(job.estimatedQuantity || 0);
-  const progress = estHrs > 0 ? Math.min(100, Math.round((totalHrs / estHrs) * 100)) : 0;
+  const estQty = Number(job.estimatedQuantity || 0);
+  const progress = estQty > 0 ? Math.min(100, Math.round((totalQty / estQty) * 100)) : 0;
   const assignableUsers = users.filter((u: any) => u.active);
 
   const openEdit = () => {
@@ -530,7 +529,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
           <div><span className="text-stone-500">Type:</span> <span className="font-medium">{job.jobType?.name}</span></div>
           <div><span className="text-stone-500">Assigned:</span> <span className="font-medium">{job.assignedTo?.name || "Unassigned"}</span></div>
           <div><span className="text-stone-500">Date:</span> <span className="font-medium">{fmtDate(job.plannedDate)}</span></div>
-          <div><span className="text-stone-500">Estimated:</span> <span className="font-medium">{estHrs ? `${estHrs} hrs` : "—"}</span></div>
+          <div><span className="text-stone-500">Estimated:</span> <span className="font-medium">{estQty ? `${estQty} ${job.unitType || "units"}` : "—"}</span></div>
         </div>
         {job.description && <p className="mt-3 text-sm text-stone-500 italic">{job.description}</p>}
 
@@ -565,22 +564,16 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
         <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-3">Progress</div>
         <div className="flex gap-8 mb-3">
           <div>
-            <span className="text-2xl font-bold" style={{ fontFamily: "Georgia, serif" }}>{totalHrs}</span>
-            <span className="text-sm text-stone-500">{estHrs ? ` / ${estHrs}` : ""} hrs worked</span>
+            <span className="text-2xl font-bold" style={{ fontFamily: "Georgia, serif" }}>{totalQty}</span>
+            <span className="text-sm text-stone-500">{estQty ? ` / ${estQty}` : ""} {job.unitType || "units"} completed</span>
           </div>
-          {totalQty > 0 && (
-            <div>
-              <span className="text-2xl font-bold" style={{ fontFamily: "Georgia, serif" }}>{totalQty}</span>
-              <span className="text-sm text-stone-500"> {job.unitType || "units"} completed</span>
-            </div>
-          )}
         </div>
-        {estHrs > 0 && (
+        {estQty > 0 && (
           <>
             <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
               <div className={`h-full rounded-full transition-all duration-500 ${progress >= 100 ? "bg-emerald-500" : "bg-field-600"}`} style={{ width: `${progress}%` }} />
             </div>
-            <div className="text-right text-xs text-stone-400 mt-1">{progress}% of estimated hours</div>
+            <div className="text-right text-xs text-stone-400 mt-1">{progress}% complete</div>
           </>
         )}
       </Card>

@@ -11,6 +11,7 @@ export async function PATCH(request: Request, { params }: Params) {
       name: string;
       billingUnit: string;
       defaultRate: number;
+      vatApplicable: boolean;
       description: string;
     }>>(request);
     const jobType = await prisma.jobType.update({ where: { id: Number(id) }, data: body });

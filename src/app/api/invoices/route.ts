@@ -25,6 +25,12 @@ export async function POST(request: Request) {
       customerId: number;
       jobIds: number[];
       dueInDays?: number; // defaults to 30
+      extraItems?: Array<{
+        description: string;
+        quantity: number;
+        unitPrice: number;
+        vatApplicable?: boolean;
+      }>;
     }>(request);
 
     if (!body.customerId || !body.jobIds?.length) {
@@ -44,7 +50,7 @@ export async function POST(request: Request) {
     if (jobs.length === 0) return error("No matching jobs found");
 
     // Build line items from job data
-    const items = jobs.map((job) => {
+    const jobItems = jobs.map((job) => {
       // Use actual logged quantity if available, otherwise estimated
       const totalQty = job.jobLogs.reduce(
         (sum, log) => sum + Number(log.quantityCompleted),
@@ -60,11 +66,28 @@ export async function POST(request: Request) {
         quantity,
         unitPrice,
         totalPrice,
+        vatApplicable: job.jobType.vatApplicable,
       };
     });
 
+    // Build extra line items
+    const extraItems = (body.extraItems || []).map((item) => ({
+      jobId: null as number | null,
+      description: item.description,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      totalPrice: Math.round(item.quantity * item.unitPrice * 100) / 100,
+      vatApplicable: item.vatApplicable !== false,
+    }));
+
+    const items = [...jobItems, ...extraItems];
+
     const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
-    const vat = Math.round(subtotal * 0.2 * 100) / 100; // 20% UK VAT
+    // VAT at 20% only on items where vatApplicable is true
+    const vatableTotal = items
+      .filter((item) => item.vatApplicable)
+      .reduce((sum, item) => sum + item.totalPrice, 0);
+    const vat = Math.round(vatableTotal * 0.2 * 100) / 100;
     const total = Math.round((subtotal + vat) * 100) / 100;
 
     // Generate invoice number
@@ -91,7 +114,8 @@ export async function POST(request: Request) {
         vat,
         total,
         items: {
-          create: items,
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          create: items.map(({ vatApplicable: _va, ...item }) => item),
         },
       },
       include: {

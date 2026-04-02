@@ -91,6 +91,7 @@ model JobType {
   name            String
   billingUnit     String        @map("billing_unit")
   defaultRate     Decimal       @map("default_rate") @db.Decimal(10, 2)
+  vatApplicable   Boolean       @default(true) @map("vat_applicable")
   description     String?       @db.Text
 
   organisation    Organisation  @relation(fields: [organisationId], references: [id])

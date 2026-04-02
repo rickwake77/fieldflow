@@ -21,6 +21,7 @@ export async function POST(request: Request) {
       name: string;
       billingUnit: string;
       defaultRate: number;
+      vatApplicable?: boolean;
       description?: string;
     }>(request);
 

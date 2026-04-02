@@ -412,7 +412,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
   const [loading, setLoading] = useState(true);
   const [showLogForm, setShowLogForm] = useState(false);
   const [logSaving, setLogSaving] = useState(false);
-  const [logForm, setLogForm] = useState({ machineId: "", quantityCompleted: "", hoursWorked: "", notes: "" });
+  const [logForm, setLogForm] = useState({ machineId: "", quantityCompleted: "", notes: "" });
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -477,18 +477,18 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
         contractorId: job.assignedTo?.id || assignableUsers[0]?.id,
         machineId: logForm.machineId ? Number(logForm.machineId) : undefined,
         quantityCompleted: Number(logForm.quantityCompleted),
-        hoursWorked: Number(logForm.hoursWorked),
+        hoursWorked: 0,
         notes: logForm.notes || undefined,
       });
       if ((result as any)?.queued) {
         // Queued for later sync — close form and show confirmation
         setShowLogForm(false);
-        setLogForm({ machineId: "", quantityCompleted: "", hoursWorked: "", notes: "" });
+        setLogForm({ machineId: "", quantityCompleted: "", notes: "" });
       } else {
         await loadJob();
         await refresh();
         setShowLogForm(false);
-        setLogForm({ machineId: "", quantityCompleted: "", hoursWorked: "", notes: "" });
+        setLogForm({ machineId: "", quantityCompleted: "", notes: "" });
       }
     } catch (err: any) {
       alert("Error logging work: " + err.message);
@@ -595,7 +595,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
                   <span className="text-stone-400">{fmtDate(log.createdAt)}</span>
                 </div>
                 <div className="text-sm text-stone-500 mt-1">
-                  {Number(log.quantityCompleted)} {job.unitType || "units"} · {Number(log.hoursWorked)} hrs
+                  {Number(log.quantityCompleted)} {job.unitType || "units"}
                   {log.contractor && <span> · {log.contractor.name}</span>}
                 </div>
                 {log.notes && <p className="text-sm text-stone-500 mt-2 italic">{log.notes}</p>}
@@ -615,20 +615,15 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
             ))}
           </select>
         </FormField>
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label={`Qty (${job.unitType || "units"})`} required>
-            <input className={inputClass} type="number" step="0.1" placeholder="0" value={logForm.quantityCompleted} onChange={e => setLogForm(f => ({ ...f, quantityCompleted: e.target.value }))} />
-          </FormField>
-          <FormField label="Hours" required>
-            <input className={inputClass} type="number" step="0.25" placeholder="0" value={logForm.hoursWorked} onChange={e => setLogForm(f => ({ ...f, hoursWorked: e.target.value }))} />
-          </FormField>
-        </div>
+        <FormField label={`Qty (${job.unitType || "units"})`} required>
+          <input className={inputClass} type="number" step="0.1" placeholder="0" value={logForm.quantityCompleted} onChange={e => setLogForm(f => ({ ...f, quantityCompleted: e.target.value }))} />
+        </FormField>
         <FormField label="Notes">
           <textarea className={inputClass} placeholder="Conditions, issues, anything to note..." rows={3} value={logForm.notes} onChange={e => setLogForm(f => ({ ...f, notes: e.target.value }))} />
         </FormField>
         <div className="flex gap-2 mt-2">
           <Btn variant="ghost" className="flex-1" onClick={() => setShowLogForm(false)}>Cancel</Btn>
-          <Btn className="flex-[2]" onClick={handleLogWork} disabled={logSaving || !logForm.quantityCompleted || !logForm.hoursWorked}>
+          <Btn className="flex-[2]" onClick={handleLogWork} disabled={logSaving || !logForm.quantityCompleted}>
             {logSaving ? "Saving..." : "Save Log"}
           </Btn>
         </div>
@@ -649,7 +644,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
           <FormField label="Planned Date">
             <input className={inputClass} type="date" value={editForm.plannedDate} onChange={e => setEditForm(f => ({ ...f, plannedDate: e.target.value }))} />
           </FormField>
-          <FormField label="Estimated Hours">
+          <FormField label={`Estimated Qty${job.unitType ? ` (${job.unitType}s)` : ""}`}>
             <input className={inputClass} type="number" step="0.25" value={editForm.estimatedQuantity} onChange={e => setEditForm(f => ({ ...f, estimatedQuantity: e.target.value }))} />
           </FormField>
         </div>
@@ -1088,18 +1083,18 @@ function JobTypesView() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", billingUnit: "acre", defaultRate: "", description: "" });
+  const [form, setForm] = useState({ name: "", billingUnit: "acre", defaultRate: "", description: "", vatApplicable: true });
 
-  const billingUnits = ["acre", "hectare", "hour", "job", "tonne"];
+  const billingUnits = ["acre", "hectare", "hour", "item", "job", "tonne"];
 
   const openEdit = (jt: any) => {
-    setForm({ name: jt.name, billingUnit: jt.billingUnit, defaultRate: String(Number(jt.defaultRate)), description: jt.description || "" });
+    setForm({ name: jt.name, billingUnit: jt.billingUnit, defaultRate: String(Number(jt.defaultRate)), description: jt.description || "", vatApplicable: jt.vatApplicable !== false });
     setEditingId(jt.id);
     setShowCreate(true);
   };
 
   const openCreate = () => {
-    setForm({ name: "", billingUnit: "acre", defaultRate: "", description: "" });
+    setForm({ name: "", billingUnit: "acre", defaultRate: "", description: "", vatApplicable: true });
     setEditingId(null);
     setShowCreate(true);
   };
@@ -1112,6 +1107,7 @@ function JobTypesView() {
           name: form.name,
           billingUnit: form.billingUnit,
           defaultRate: Number(form.defaultRate),
+          vatApplicable: form.vatApplicable,
           description: form.description || undefined,
         });
       } else {
@@ -1120,6 +1116,7 @@ function JobTypesView() {
           name: form.name,
           billingUnit: form.billingUnit,
           defaultRate: Number(form.defaultRate),
+          vatApplicable: form.vatApplicable,
           description: form.description || undefined,
         });
       }
@@ -1155,9 +1152,10 @@ function JobTypesView() {
             <div className="flex justify-between items-start gap-3">
               <div className="min-w-0 flex-1">
                 <div className="font-bold text-sm">{jt.name}</div>
-                <div className="text-xs text-stone-500 mt-0.5">
-                  {fmtCurrency(Number(jt.defaultRate))} per {jt.billingUnit}
-                  {jt._count?.jobs > 0 && <span> · {jt._count.jobs} jobs</span>}
+                <div className="text-xs text-stone-500 mt-0.5 flex items-center gap-2">
+                  <span>{fmtCurrency(Number(jt.defaultRate))} per {jt.billingUnit}</span>
+                  {jt._count?.jobs > 0 && <span>· {jt._count.jobs} jobs</span>}
+                  {jt.vatApplicable === false && <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-semibold">No VAT</span>}
                 </div>
                 {jt.description && <div className="text-xs text-stone-400 mt-1">{jt.description}</div>}
               </div>
@@ -1187,6 +1185,10 @@ function JobTypesView() {
         <FormField label="Description">
           <textarea className={inputClass} placeholder="Optional description..." rows={2} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
         </FormField>
+        <label className="flex items-center gap-2.5 cursor-pointer select-none mt-1">
+          <input type="checkbox" className="accent-field-600 w-4 h-4" checked={form.vatApplicable} onChange={e => setForm(f => ({ ...f, vatApplicable: e.target.checked }))} />
+          <span className="text-sm text-stone-700">VAT applicable (20%)</span>
+        </label>
         <div className="flex gap-2 mt-2">
           <Btn variant="ghost" className="flex-1" onClick={() => setShowCreate(false)}>Cancel</Btn>
           <Btn className="flex-[2]" onClick={handleSave} disabled={saving || !form.name || !form.defaultRate}>

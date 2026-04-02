@@ -909,7 +909,13 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
   const [creating, setCreating] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState("");
   const [selectedJobIds, setSelectedJobIds] = useState<number[]>([]);
+  const [extraItems, setExtraItems] = useState<Array<{ description: string; quantity: string; unitPrice: string }>>([]);
   const [filter, setFilter] = useState(initialFilter || "all");
+
+  const addExtraItem = () => setExtraItems(prev => [...prev, { description: "", quantity: "1", unitPrice: "" }]);
+  const removeExtraItem = (i: number) => setExtraItems(prev => prev.filter((_, idx) => idx !== i));
+  const updateExtraItem = (i: number, field: string, value: string) =>
+    setExtraItems(prev => prev.map((item, idx) => idx === i ? { ...item, [field]: value } : item));
 
   const filteredInvoices = filter === "all" ? invoices : (filter === "unpaid" ? invoices.filter((i: any) => i.status !== "paid") : invoices.filter((i: any) => i.status === filter));
 
@@ -924,14 +930,23 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
   const handleCreate = async () => {
     setCreating(true);
     try {
+      const validExtras = extraItems
+        .filter(item => item.description.trim() && item.unitPrice)
+        .map(item => ({
+          description: item.description.trim(),
+          quantity: Number(item.quantity) || 1,
+          unitPrice: Number(item.unitPrice),
+        }));
       await api.createInvoice({
         customerId: Number(selectedCustomer),
         jobIds: selectedJobIds,
+        extraItems: validExtras.length ? validExtras : undefined,
       });
       await refresh();
       setShowCreate(false);
       setSelectedCustomer("");
       setSelectedJobIds([]);
+      setExtraItems([]);
     } catch (err: any) {
       alert("Error: " + err.message);
     }
@@ -1060,6 +1075,39 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
             )}
           </FormField>
         )}
+
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500">Extra Line Items</span>
+            <button onClick={addExtraItem} className="text-xs text-field-700 font-semibold hover:underline">+ Add Line</button>
+          </div>
+          {extraItems.length === 0 && (
+            <div className="text-xs text-stone-400 py-2">No extra lines — <button onClick={addExtraItem} className="underline">add one</button> (e.g. Fuel Levy)</div>
+          )}
+          {extraItems.map((item, i) => (
+            <div key={i} className="flex gap-2 mb-2 items-start">
+              <input
+                className={`${inputClass} flex-[3]`}
+                placeholder="Description (e.g. Fuel Levy)"
+                value={item.description}
+                onChange={e => updateExtraItem(i, "description", e.target.value)}
+              />
+              <input
+                className={`${inputClass} w-16`}
+                type="number" step="1" min="1" placeholder="Qty"
+                value={item.quantity}
+                onChange={e => updateExtraItem(i, "quantity", e.target.value)}
+              />
+              <input
+                className={`${inputClass} w-24`}
+                type="number" step="0.01" placeholder="£ Rate"
+                value={item.unitPrice}
+                onChange={e => updateExtraItem(i, "unitPrice", e.target.value)}
+              />
+              <button onClick={() => removeExtraItem(i)} className="text-stone-400 hover:text-red-500 mt-2 flex-shrink-0">✕</button>
+            </div>
+          ))}
+        </div>
 
         <div className="flex gap-2 mt-4">
           <Btn variant="ghost" className="flex-1" onClick={() => setShowCreate(false)}>Cancel</Btn>

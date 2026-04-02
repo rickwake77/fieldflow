@@ -149,7 +149,7 @@ export const api = {
   // Invoices
   getInvoices: () => cachedGet<any[]>("invoices", "/invoices"),
   getInvoice: (id: number) => cachedGet<any>(`invoice-${id}`, `/invoices/${id}`),
-  createInvoice: (data: { customerId: number; jobIds: number[]; dueInDays?: number }) =>
+  createInvoice: (data: { customerId: number; jobIds: number[]; dueInDays?: number; extraItems?: Array<{ description: string; quantity: number; unitPrice: number }> }) =>
     request<any>("/invoices", { method: "POST", body: JSON.stringify(data) }),
   updateInvoice: (id: number, data: any) =>
     request<any>(`/invoices/${id}`, { method: "PATCH", body: JSON.stringify(data) }),

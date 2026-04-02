@@ -675,6 +675,10 @@ function CustomersView() {
   const [showFieldForm, setShowFieldForm] = useState(false);
   const [fieldForm, setFieldForm] = useState({ customerId: 0, fieldName: "", hectares: "", notes: "" });
   const [fieldSaving, setFieldSaving] = useState(false);
+  const [editingFieldId, setEditingFieldId] = useState<number | null>(null);
+  const [showEditFieldForm, setShowEditFieldForm] = useState(false);
+  const [editFieldForm, setEditFieldForm] = useState({ fieldName: "", hectares: "", notes: "" });
+  const [editFieldSaving, setEditFieldSaving] = useState(false);
 
   const openCreate = () => {
     setForm({ name: "", contact: "", phone: "", email: "", address: "" });
@@ -738,6 +742,27 @@ function CustomersView() {
     } catch (err: any) { alert("Error: " + err.message); }
   };
 
+  const openEditField = (f: any) => {
+    setEditingFieldId(f.id);
+    setEditFieldForm({ fieldName: f.fieldName, hectares: String(Number(f.hectares)), notes: f.notes || "" });
+    setShowEditFieldForm(true);
+  };
+
+  const handleEditFieldSave = async () => {
+    if (!editingFieldId) return;
+    setEditFieldSaving(true);
+    try {
+      await api.updateField(editingFieldId, {
+        fieldName: editFieldForm.fieldName,
+        hectares: Number(editFieldForm.hectares) || 0,
+        notes: editFieldForm.notes || undefined,
+      });
+      await refresh();
+      setShowEditFieldForm(false);
+    } catch (err: any) { alert("Error: " + err.message); }
+    setEditFieldSaving(false);
+  };
+
   return (
     <div>
       <PageHeader
@@ -787,12 +812,18 @@ function CustomersView() {
                         {custFields.length > 0 ? (
                           <div className="space-y-1.5">
                             {custFields.map((f: any) => (
-                              <div key={f.id} className="flex justify-between items-center bg-white rounded-lg px-3 py-2 border border-stone-200">
-                                <div>
-                                  <span className="text-sm font-medium">{f.fieldName}</span>
-                                  <span className="text-xs text-stone-500 ml-2">{Number(f.hectares)} ac</span>
+                              <div key={f.id} className="bg-white rounded-lg px-3 py-2 border border-stone-200">
+                                <div className="flex justify-between items-center">
+                                  <div>
+                                    <span className="text-sm font-medium">{f.fieldName}</span>
+                                    <span className="text-xs text-stone-500 ml-2">{Number(f.hectares)} ac</span>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button onClick={() => openEditField(f)} className="text-xs text-field-700 hover:underline">Edit</button>
+                                    <button onClick={() => handleDeleteField(f.id, f.fieldName)} className="text-xs text-red-500 hover:underline">Remove</button>
+                                  </div>
                                 </div>
-                                <button onClick={() => handleDeleteField(f.id, f.fieldName)} className="text-xs text-red-500 hover:underline">Remove</button>
+                                {f.notes && <p className="text-xs text-stone-400 mt-1 italic">{f.notes}</p>}
                               </div>
                             ))}
                           </div>
@@ -836,9 +867,15 @@ function CustomersView() {
                     <button onClick={() => openAddField(c.id)} className="text-xs font-semibold text-field-700">+ Add</button>
                   </div>
                   {custFields.map((f: any) => (
-                    <div key={f.id} className="flex justify-between items-center py-1.5">
-                      <div className="text-sm">{f.fieldName} <span className="text-stone-400 text-xs">{Number(f.hectares)} ac</span></div>
-                      <button onClick={() => handleDeleteField(f.id, f.fieldName)} className="text-xs text-red-500">Remove</button>
+                    <div key={f.id} className="py-1.5 border-b border-stone-100 last:border-0">
+                      <div className="flex justify-between items-center">
+                        <div className="text-sm">{f.fieldName} <span className="text-stone-400 text-xs">{Number(f.hectares)} ac</span></div>
+                        <div className="flex gap-2">
+                          <button onClick={() => openEditField(f)} className="text-xs text-field-700">Edit</button>
+                          <button onClick={() => handleDeleteField(f.id, f.fieldName)} className="text-xs text-red-500">Remove</button>
+                        </div>
+                      </div>
+                      {f.notes && <p className="text-xs text-stone-400 mt-0.5 italic">{f.notes}</p>}
                     </div>
                   ))}
                   {custFields.length === 0 && <div className="text-xs text-stone-400">No fields</div>}
@@ -887,12 +924,31 @@ function CustomersView() {
           </FormField>
         </div>
         <FormField label="Notes">
-          <textarea className={inputClass} placeholder="Access info, soil type, hazards..." rows={2} value={fieldForm.notes} onChange={e => setFieldForm(f => ({ ...f, notes: e.target.value }))} />
+          <textarea className={inputClass} placeholder="Access info, soil type, hazards..." rows={3} value={fieldForm.notes} onChange={e => setFieldForm(f => ({ ...f, notes: e.target.value }))} />
         </FormField>
         <div className="flex gap-2 mt-2">
           <Btn variant="ghost" className="flex-1" onClick={() => setShowFieldForm(false)}>Cancel</Btn>
           <Btn className="flex-[2]" onClick={handleSaveField} disabled={fieldSaving || !fieldForm.fieldName}>
             {fieldSaving ? "Saving..." : "Add Field"}
+          </Btn>
+        </div>
+      </Modal>
+
+      {/* Edit Field Modal */}
+      <Modal isOpen={showEditFieldForm} onClose={() => setShowEditFieldForm(false)} title="Edit Field">
+        <FormField label="Field Name" required>
+          <input className={inputClass} value={editFieldForm.fieldName} onChange={e => setEditFieldForm(f => ({ ...f, fieldName: e.target.value }))} />
+        </FormField>
+        <FormField label="Acres">
+          <input className={inputClass} type="number" step="0.1" value={editFieldForm.hectares} onChange={e => setEditFieldForm(f => ({ ...f, hectares: e.target.value }))} />
+        </FormField>
+        <FormField label="Notes">
+          <textarea className={inputClass} placeholder="Access info, soil type, hazards..." rows={3} value={editFieldForm.notes} onChange={e => setEditFieldForm(f => ({ ...f, notes: e.target.value }))} />
+        </FormField>
+        <div className="flex gap-2 mt-2">
+          <Btn variant="ghost" className="flex-1" onClick={() => setShowEditFieldForm(false)}>Cancel</Btn>
+          <Btn className="flex-[2]" onClick={handleEditFieldSave} disabled={editFieldSaving || !editFieldForm.fieldName}>
+            {editFieldSaving ? "Saving..." : "Save Changes"}
           </Btn>
         </div>
       </Modal>

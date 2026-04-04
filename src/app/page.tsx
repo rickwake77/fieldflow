@@ -1219,13 +1219,13 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
               />
               <div className="flex gap-2 items-center">
                 <input
-                  className={`${inputClass} w-20`}
+                  className={`${inputClass} w-14`}
                   type="number" step="1" min="1" placeholder="Qty"
                   value={item.quantity}
                   onChange={e => updateExtraItem(i, "quantity", e.target.value)}
                 />
                 <input
-                  className={`${inputClass} flex-1`}
+                  className={`${inputClass} flex-[2]`}
                   type="number" step="0.01" placeholder="£ Rate"
                   value={item.unitPrice}
                   onChange={e => updateExtraItem(i, "unitPrice", e.target.value)}

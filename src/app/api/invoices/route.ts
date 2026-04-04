@@ -114,8 +114,7 @@ export async function POST(request: Request) {
         vat,
         total,
         items: {
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          create: items.map(({ vatApplicable: _va, ...item }) => item),
+          create: items.map(({ vatApplicable, ...item }) => ({ ...item, vatApplicable })),
         },
       },
       include: {

@@ -1015,11 +1015,51 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
   const [selectedJobIds, setSelectedJobIds] = useState<number[]>([]);
   const [extraItems, setExtraItems] = useState<Array<{ description: string; quantity: string; unitPrice: string; vatApplicable: boolean }>>([]);
   const [filter, setFilter] = useState(initialFilter || "all");
+  const [editingInvoice, setEditingInvoice] = useState<any>(null);
+  const [editItems, setEditItems] = useState<Array<{ description: string; quantity: string; unitPrice: string; vatApplicable: boolean; jobId?: number | null }>>([]);
+  const [editSaving, setEditSaving] = useState(false);
 
   const addExtraItem = () => setExtraItems(prev => [...prev, { description: "", quantity: "1", unitPrice: "", vatApplicable: true }]);
   const removeExtraItem = (i: number) => setExtraItems(prev => prev.filter((_, idx) => idx !== i));
   const updateExtraItem = (i: number, field: string, value: string | boolean) =>
     setExtraItems(prev => prev.map((item, idx) => idx === i ? { ...item, [field]: value } : item));
+
+  const openEditInvoice = (inv: any) => {
+    setEditingInvoice(inv);
+    setEditItems((inv.items || []).map((item: any) => ({
+      description: item.description,
+      quantity: String(Number(item.quantity)),
+      unitPrice: String(Number(item.unitPrice)),
+      vatApplicable: item.vatApplicable !== false,
+      jobId: item.jobId ?? null,
+    })));
+  };
+  const removeEditItem = (i: number) => setEditItems(prev => prev.filter((_, idx) => idx !== i));
+  const updateEditItem = (i: number, field: string, value: string | boolean) =>
+    setEditItems(prev => prev.map((item, idx) => idx === i ? { ...item, [field]: value } : item));
+  const addEditItem = () => setEditItems(prev => [...prev, { description: "", quantity: "1", unitPrice: "", vatApplicable: true, jobId: null }]);
+
+  const handleEditSave = async () => {
+    if (!editingInvoice) return;
+    setEditSaving(true);
+    try {
+      const validItems = editItems.filter(item => item.description.trim() && item.unitPrice);
+      await api.updateInvoice(editingInvoice.id, {
+        items: validItems.map(item => ({
+          description: item.description.trim(),
+          quantity: Number(item.quantity) || 1,
+          unitPrice: Number(item.unitPrice),
+          vatApplicable: item.vatApplicable,
+          jobId: item.jobId ?? null,
+        })),
+      });
+      await refresh();
+      setEditingInvoice(null);
+    } catch (err: any) {
+      alert("Error saving invoice: " + err.message);
+    }
+    setEditSaving(false);
+  };
 
   const filteredInvoices = filter === "all" ? invoices : (filter === "unpaid" ? invoices.filter((i: any) => i.status !== "paid") : invoices.filter((i: any) => i.status === filter));
 
@@ -1128,7 +1168,10 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
                         {inv.status === "draft" && (
-                          <button onClick={() => handleStatusUpdate(inv.id, "sent")} className="text-xs text-blue-600 hover:underline">Send</button>
+                          <>
+                            <button onClick={() => openEditInvoice(inv)} className="text-xs text-stone-600 hover:underline">Edit</button>
+                            <button onClick={() => handleStatusUpdate(inv.id, "sent")} className="text-xs text-blue-600 hover:underline">Send</button>
+                          </>
                         )}
                         {inv.status === "sent" && (
                           <button onClick={() => handleStatusUpdate(inv.id, "paid")} className="text-xs text-emerald-600 hover:underline">Mark Paid</button>
@@ -1158,6 +1201,7 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                   <div className="font-bold font-mono">{fmtCurrency(Number(inv.total))}</div>
                 </div>
                 <div className="flex gap-2 mt-3 pt-2 border-t border-stone-100">
+                  {inv.status === "draft" && <button onClick={() => openEditInvoice(inv)} className="text-xs text-stone-600 font-semibold">Edit</button>}
                   {inv.status === "draft" && <button onClick={() => handleStatusUpdate(inv.id, "sent")} className="text-xs text-blue-600 font-semibold">Mark Sent</button>}
                   {inv.status === "sent" && <button onClick={() => handleStatusUpdate(inv.id, "paid")} className="text-xs text-emerald-600 font-semibold">Mark Paid</button>}
                   <button onClick={() => handleDownloadDocx(inv.id, inv.invoiceNumber)} className="text-xs text-field-700 font-semibold">Download</button>
@@ -1251,6 +1295,56 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
           <Btn variant="ghost" className="flex-1" onClick={() => setShowCreate(false)}>Cancel</Btn>
           <Btn className="flex-[2]" onClick={handleCreate} disabled={creating || !selectedCustomer || selectedJobIds.length === 0}>
             {creating ? "Generating..." : `Generate Invoice (${selectedJobIds.length} jobs)`}
+          </Btn>
+        </div>
+      </Modal>
+
+      {/* Edit Draft Invoice Modal */}
+      <Modal isOpen={!!editingInvoice} onClose={() => setEditingInvoice(null)} title={`Edit ${editingInvoice?.invoiceNumber || ""}`}>
+        <div className="mb-3 text-xs text-stone-500">Edit line items below. Totals and VAT will be recalculated automatically.</div>
+        <div className="space-y-3 max-h-80 overflow-y-auto mb-2">
+          {editItems.map((item, i) => (
+            <div key={i} className="p-3 rounded-lg border border-stone-200 bg-stone-50 space-y-2">
+              <input
+                className={inputClass}
+                placeholder="Description"
+                value={item.description}
+                onChange={e => updateEditItem(i, "description", e.target.value)}
+              />
+              <div className="flex gap-2 items-center">
+                <input
+                  style={{ width: "60px", minWidth: "60px" }}
+                  className={inputClass}
+                  type="number" step="1" min="1" placeholder="Qty"
+                  value={item.quantity}
+                  onChange={e => updateEditItem(i, "quantity", e.target.value)}
+                />
+                <input
+                  style={{ flex: 1 }}
+                  className={inputClass}
+                  type="number" step="0.01" placeholder="£ Rate"
+                  value={item.unitPrice}
+                  onChange={e => updateEditItem(i, "unitPrice", e.target.value)}
+                />
+                <label className="flex items-center gap-1.5 cursor-pointer select-none flex-shrink-0">
+                  <input
+                    type="checkbox"
+                    className="accent-field-600 w-4 h-4"
+                    checked={item.vatApplicable}
+                    onChange={e => updateEditItem(i, "vatApplicable", e.target.checked)}
+                  />
+                  <span className="text-xs text-stone-600 font-medium">VAT</span>
+                </label>
+                <button onClick={() => removeEditItem(i)} className="text-stone-400 hover:text-red-500 flex-shrink-0">✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button onClick={addEditItem} className="text-xs text-field-700 font-semibold hover:underline mb-4 block">+ Add Line</button>
+        <div className="flex gap-2 mt-2">
+          <Btn variant="ghost" className="flex-1" onClick={() => setEditingInvoice(null)}>Cancel</Btn>
+          <Btn className="flex-[2]" onClick={handleEditSave} disabled={editSaving || editItems.length === 0}>
+            {editSaving ? "Saving..." : "Save Changes"}
           </Btn>
         </div>
       </Modal>

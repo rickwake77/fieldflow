@@ -199,16 +199,17 @@ enum InvoiceStatus {
 }
 
 model InvoiceItem {
-  id          Int     @id @default(autoincrement())
-  invoiceId   Int     @map("invoice_id")
-  jobId       Int?    @map("job_id")
-  description String
-  quantity    Decimal @db.Decimal(10, 2)
-  unitPrice   Decimal @map("unit_price") @db.Decimal(10, 2)
-  totalPrice  Decimal @map("total_price") @db.Decimal(10, 2)
+  id            Int     @id @default(autoincrement())
+  invoiceId     Int     @map("invoice_id")
+  jobId         Int?    @map("job_id")
+  description   String
+  quantity      Decimal @db.Decimal(10, 2)
+  unitPrice     Decimal @map("unit_price") @db.Decimal(10, 2)
+  totalPrice    Decimal @map("total_price") @db.Decimal(10, 2)
+  vatApplicable Boolean @default(true) @map("vat_applicable")
 
-  invoice     Invoice @relation(fields: [invoiceId], references: [id])
-  job         Job?    @relation(fields: [jobId], references: [id])
+  invoice       Invoice @relation(fields: [invoiceId], references: [id])
+  job           Job?    @relation(fields: [jobId], references: [id])
 
   @@map("invoice_items")
 }

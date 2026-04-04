@@ -1013,12 +1013,12 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
   const [creating, setCreating] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState("");
   const [selectedJobIds, setSelectedJobIds] = useState<number[]>([]);
-  const [extraItems, setExtraItems] = useState<Array<{ description: string; quantity: string; unitPrice: string }>>([]);
+  const [extraItems, setExtraItems] = useState<Array<{ description: string; quantity: string; unitPrice: string; vatApplicable: boolean }>>([]);
   const [filter, setFilter] = useState(initialFilter || "all");
 
-  const addExtraItem = () => setExtraItems(prev => [...prev, { description: "", quantity: "1", unitPrice: "" }]);
+  const addExtraItem = () => setExtraItems(prev => [...prev, { description: "", quantity: "1", unitPrice: "", vatApplicable: true }]);
   const removeExtraItem = (i: number) => setExtraItems(prev => prev.filter((_, idx) => idx !== i));
-  const updateExtraItem = (i: number, field: string, value: string) =>
+  const updateExtraItem = (i: number, field: string, value: string | boolean) =>
     setExtraItems(prev => prev.map((item, idx) => idx === i ? { ...item, [field]: value } : item));
 
   const filteredInvoices = filter === "all" ? invoices : (filter === "unpaid" ? invoices.filter((i: any) => i.status !== "paid") : invoices.filter((i: any) => i.status === filter));
@@ -1040,6 +1040,7 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
           description: item.description.trim(),
           quantity: Number(item.quantity) || 1,
           unitPrice: Number(item.unitPrice),
+          vatApplicable: item.vatApplicable,
         }));
       await api.createInvoice({
         customerId: Number(selectedCustomer),
@@ -1209,26 +1210,37 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
             <div className="text-xs text-stone-400 py-2">No extra lines — <button onClick={addExtraItem} className="underline">add one</button> (e.g. Fuel Levy)</div>
           )}
           {extraItems.map((item, i) => (
-            <div key={i} className="flex gap-2 mb-2 items-start">
+            <div key={i} className="mb-3 p-3 rounded-lg border border-stone-200 bg-stone-50 space-y-2">
               <input
-                className={`${inputClass} flex-[3]`}
+                className={inputClass}
                 placeholder="Description (e.g. Fuel Levy)"
                 value={item.description}
                 onChange={e => updateExtraItem(i, "description", e.target.value)}
               />
-              <input
-                className={`${inputClass} w-16`}
-                type="number" step="1" min="1" placeholder="Qty"
-                value={item.quantity}
-                onChange={e => updateExtraItem(i, "quantity", e.target.value)}
-              />
-              <input
-                className={`${inputClass} w-24`}
-                type="number" step="0.01" placeholder="£ Rate"
-                value={item.unitPrice}
-                onChange={e => updateExtraItem(i, "unitPrice", e.target.value)}
-              />
-              <button onClick={() => removeExtraItem(i)} className="text-stone-400 hover:text-red-500 mt-2 flex-shrink-0">✕</button>
+              <div className="flex gap-2 items-center">
+                <input
+                  className={`${inputClass} w-20`}
+                  type="number" step="1" min="1" placeholder="Qty"
+                  value={item.quantity}
+                  onChange={e => updateExtraItem(i, "quantity", e.target.value)}
+                />
+                <input
+                  className={`${inputClass} flex-1`}
+                  type="number" step="0.01" placeholder="£ Rate"
+                  value={item.unitPrice}
+                  onChange={e => updateExtraItem(i, "unitPrice", e.target.value)}
+                />
+                <label className="flex items-center gap-1.5 cursor-pointer select-none flex-shrink-0">
+                  <input
+                    type="checkbox"
+                    className="accent-field-600 w-4 h-4"
+                    checked={item.vatApplicable}
+                    onChange={e => updateExtraItem(i, "vatApplicable", e.target.checked)}
+                  />
+                  <span className="text-xs text-stone-600 font-medium">VAT</span>
+                </label>
+                <button onClick={() => removeExtraItem(i)} className="text-stone-400 hover:text-red-500 flex-shrink-0">✕</button>
+              </div>
             </div>
           ))}
         </div>

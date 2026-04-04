@@ -77,7 +77,7 @@ export async function POST(request: Request) {
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       totalPrice: Math.round(item.quantity * item.unitPrice * 100) / 100,
-      vatApplicable: item.vatApplicable !== false,
+      vatApplicable: item.vatApplicable === true,
     }));
 
     const items = [...jobItems, ...extraItems];

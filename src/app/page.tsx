@@ -1066,6 +1066,24 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
     }
   };
 
+  const handleDownloadDocx = async (invoiceId: number, invoiceNumber: string) => {
+    try {
+      const response = await fetch(`/api/invoices/${invoiceId}/docx`);
+      if (!response.ok) throw new Error("Failed to generate document");
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${invoiceNumber}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      alert("Error downloading invoice: " + err.message);
+    }
+  };
+
   return (
     <div>
       <PageHeader
@@ -1114,6 +1132,7 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                         {inv.status === "sent" && (
                           <button onClick={() => handleStatusUpdate(inv.id, "paid")} className="text-xs text-emerald-600 hover:underline">Mark Paid</button>
                         )}
+                        <button onClick={() => handleDownloadDocx(inv.id, inv.invoiceNumber)} className="text-xs text-field-700 hover:underline">Download</button>
                       </div>
                     </td>
                   </tr>
@@ -1140,6 +1159,7 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                 <div className="flex gap-2 mt-3 pt-2 border-t border-stone-100">
                   {inv.status === "draft" && <button onClick={() => handleStatusUpdate(inv.id, "sent")} className="text-xs text-blue-600 font-semibold">Mark Sent</button>}
                   {inv.status === "sent" && <button onClick={() => handleStatusUpdate(inv.id, "paid")} className="text-xs text-emerald-600 font-semibold">Mark Paid</button>}
+                  <button onClick={() => handleDownloadDocx(inv.id, inv.invoiceNumber)} className="text-xs text-field-700 font-semibold">Download</button>
                 </div>
               </Card>
             ))}

@@ -1922,7 +1922,6 @@ function WorkOrdersView() {
       applyingTemplate.templateItems?.forEach((item: any) => {
         const override = applyForm.overrides[String(item.jobTypeId)] || {};
         overrides[String(item.jobTypeId)] = {
-          fieldId: override.fieldId ? Number(override.fieldId) : undefined,
           assignedToUserId: override.assignedToUserId ? Number(override.assignedToUserId) : (applyForm.assignedToUserId ? Number(applyForm.assignedToUserId) : undefined),
           plannedDate: override.plannedDate || applyForm.plannedDate || undefined,
         };

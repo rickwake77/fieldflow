@@ -229,27 +229,16 @@ export async function GET(_request: Request, { params }: Params) {
     const invoiceDate = new Date(invoice.invoiceDate);
     const dateStr = fmtDate(invoiceDate);
 
-    const lineItems = invoice.items.map((item) => ({
-      description: item.description,
-      totalPrice: Number(item.totalPrice),
-      vatAmount: 0,
-    }));
-
-    // Distribute VAT proportionally across items
     const invoiceSubtotal = Number(invoice.subtotal);
     const invoiceVat = Number(invoice.vat);
-    if (invoiceSubtotal > 0 && invoiceVat > 0) {
-      let vatAssigned = 0;
-      lineItems.forEach((item, i) => {
-        if (i === lineItems.length - 1) {
-          item.vatAmount = Math.round((invoiceVat - vatAssigned) * 100) / 100;
-        } else {
-          item.vatAmount =
-            Math.round((item.totalPrice / invoiceSubtotal) * invoiceVat * 100) / 100;
-          vatAssigned += item.vatAmount;
-        }
-      });
-    }
+
+    const lineItems = invoice.items.map((item) => {
+      const totalPrice = Number(item.totalPrice);
+      const vatAmount = item.vatApplicable
+        ? Math.round(totalPrice * 0.2 * 100) / 100
+        : 0;
+      return { description: item.description, totalPrice, vatAmount };
+    });
 
     const newBody =
       `<w:body>` +

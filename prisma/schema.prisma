@@ -16,13 +16,14 @@ datasource db {
 // ============================================================
 
 model Organisation {
-  id        Int       @id @default(autoincrement())
+  id        Int        @id @default(autoincrement())
   name      String
-  createdAt DateTime  @default(now()) @map("created_at")
+  createdAt DateTime   @default(now()) @map("created_at")
 
   users     User[]
   jobTypes  JobType[]
   machines  Machine[]
+  jobGroups JobGroup[]
 
   @@map("organisations")
 }
@@ -64,9 +65,10 @@ model Customer {
   address   String?
   createdAt DateTime  @default(now()) @map("created_at")
 
-  fields    Field[]
-  jobs      Job[]
-  invoices  Invoice[]
+  fields     Field[]
+  jobs       Job[]
+  invoices   Invoice[]
+  jobGroups  JobGroup[]
 
   @@map("customers")
 }
@@ -94,8 +96,9 @@ model JobType {
   vatApplicable   Boolean       @default(true) @map("vat_applicable")
   description     String?       @db.Text
 
-  organisation    Organisation  @relation(fields: [organisationId], references: [id])
+  organisation    Organisation   @relation(fields: [organisationId], references: [id])
   jobs            Job[]
+  groupItems      JobGroupItem[]
 
   @@map("job_types")
 }
@@ -124,6 +127,7 @@ model Job {
   fieldId           Int?          @map("field_id")
   jobTypeId         Int           @map("job_type_id")
   assignedToUserId  Int?          @map("assigned_to_user_id")
+  jobGroupId        Int?          @map("job_group_id")
   title             String
   description       String?       @db.Text
   plannedDate       DateTime?     @map("planned_date") @db.Date
@@ -138,10 +142,52 @@ model Job {
   jobType           JobType       @relation(fields: [jobTypeId], references: [id])
   assignedTo        User?         @relation("AssignedJobs", fields: [assignedToUserId], references: [id])
   createdByUser     User?         @relation("CreatedJobs", fields: [createdBy], references: [id])
+  jobGroup          JobGroup?     @relation(fields: [jobGroupId], references: [id])
   jobLogs           JobLog[]
   invoiceItems      InvoiceItem[]
 
   @@map("jobs")
+}
+
+// ============================================================
+// JOB GROUPS (Work Orders & Package Templates)
+// ============================================================
+
+model JobGroup {
+  id              Int               @id @default(autoincrement())
+  organisationId  Int               @map("organisation_id")
+  name            String
+  description     String?           @db.Text
+  isTemplate      Boolean           @default(false) @map("is_template")
+  customerId      Int?              @map("customer_id")
+  status          JobGroupStatus    @default(active) @map("status")
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  organisation    Organisation      @relation(fields: [organisationId], references: [id])
+  customer        Customer?         @relation(fields: [customerId], references: [id])
+  jobs            Job[]
+  templateItems   JobGroupItem[]
+
+  @@map("job_groups")
+}
+
+enum JobGroupStatus {
+  active
+  completed
+  cancelled
+}
+
+model JobGroupItem {
+  id          Int       @id @default(autoincrement())
+  jobGroupId  Int       @map("job_group_id")
+  jobTypeId   Int       @map("job_type_id")
+  sequence    Int       @default(0)
+  notes       String?   @db.Text
+
+  jobGroup    JobGroup  @relation(fields: [jobGroupId], references: [id], onDelete: Cascade)
+  jobType     JobType   @relation(fields: [jobTypeId], references: [id])
+
+  @@map("job_group_items")
 }
 
 enum JobStatus {

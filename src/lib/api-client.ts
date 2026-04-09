@@ -178,4 +178,15 @@ export const api = {
     request<any>(`/machines/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteMachine: (id: number) =>
     request<any>(`/machines/${id}`, { method: "DELETE" }),
+
+  // Job Groups (Work Orders & Templates)
+  getJobGroups: () => cachedGet<any[]>("job-groups", "/job-groups"),
+  createJobGroup: (data: any) =>
+    request<any>("/job-groups", { method: "POST", body: JSON.stringify(data) }),
+  updateJobGroup: (id: number, data: any) =>
+    request<any>(`/job-groups/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteJobGroup: (id: number) =>
+    request<any>(`/job-groups/${id}`, { method: "DELETE" }),
+  applyTemplate: (id: number, data: any) =>
+    request<any>(`/job-groups/${id}/apply`, { method: "POST", body: JSON.stringify(data) }),
 };

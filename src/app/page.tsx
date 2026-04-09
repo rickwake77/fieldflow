@@ -9,7 +9,7 @@ import OfflineBar from "@/components/OfflineBar";
 // ============================================================
 // TYPES
 // ============================================================
-type ViewId = "dashboard" | "jobs" | "customers" | "invoices" | "machines" | "job-detail" | "team" | "job-types";
+type ViewId = "dashboard" | "jobs" | "customers" | "invoices" | "machines" | "job-detail" | "team" | "job-types" | "work-orders";
 
 // ============================================================
 // CONTEXT
@@ -22,13 +22,14 @@ interface AppState {
   jobTypes: any[];
   machines: any[];
   invoices: any[];
+  jobGroups: any[];
   currentUser: any | null;
   loading: boolean;
   refresh: () => Promise<void>;
 }
 
 const AppContext = createContext<AppState>({
-  users: [], customers: [], fields: [], jobs: [], jobTypes: [], machines: [], invoices: [],
+  users: [], customers: [], fields: [], jobs: [], jobTypes: [], machines: [], invoices: [], jobGroups: [],
   currentUser: null, loading: true, refresh: async () => { },
 });
 
@@ -1817,6 +1818,297 @@ function TeamView() {
 }
 
 // ============================================================
+// WORK ORDERS
+// ============================================================
+function WorkOrdersView() {
+  const { jobGroups, customers, jobTypes, fields, users, refresh, currentUser } = useApp();
+  const [tab, setTab] = useState<"orders" | "templates">("orders");
+  const [saving, setSaving] = useState(false);
+
+  // ── Shared form state ──────────────────────────────────────
+  const blankForm = () => ({
+    name: "", description: "",
+    customerId: "", isTemplate: false,
+    items: [] as Array<{ jobTypeId: string; sequence: number; notes: string }>,
+  });
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState(blankForm());
+
+  // ── Apply-template state ───────────────────────────────────
+  const [applyingTemplate, setApplyingTemplate] = useState<any>(null);
+  const [applyForm, setApplyForm] = useState({ customerId: "", fieldId: "", assignedToUserId: "", plannedDate: "" });
+  const [applying, setApplying] = useState(false);
+
+  const templates = jobGroups.filter((g: any) => g.isTemplate);
+  const workOrders = jobGroups.filter((g: any) => !g.isTemplate);
+  const displayed = tab === "templates" ? templates : workOrders;
+
+  const customerFields = applyForm.customerId
+    ? fields.filter((f: any) => f.customer?.id === Number(applyForm.customerId))
+    : [];
+
+  const addItem = () =>
+    setForm(f => ({ ...f, items: [...f.items, { jobTypeId: "", sequence: f.items.length + 1, notes: "" }] }));
+  const removeItem = (i: number) =>
+    setForm(f => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }));
+  const updateItem = (i: number, field: string, value: string | number) =>
+    setForm(f => ({ ...f, items: f.items.map((item, idx) => idx === i ? { ...item, [field]: value } : item) }));
+
+  const openCreate = (isTemplate: boolean) => {
+    setForm({ ...blankForm(), isTemplate });
+    setEditingId(null);
+    setShowForm(true);
+  };
+
+  const openEdit = (g: any) => {
+    setForm({
+      name: g.name,
+      description: g.description || "",
+      customerId: g.customer?.id ? String(g.customer.id) : "",
+      isTemplate: g.isTemplate,
+      items: (g.templateItems || []).map((item: any) => ({
+        jobTypeId: String(item.jobTypeId),
+        sequence: item.sequence,
+        notes: item.notes || "",
+      })),
+    });
+    setEditingId(g.id);
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const payload = {
+        name: form.name,
+        description: form.description || undefined,
+        isTemplate: form.isTemplate,
+        customerId: form.customerId ? Number(form.customerId) : undefined,
+        organisationId: (currentUser as any)?.organisationId || 1,
+        templateItems: form.items
+          .filter(item => item.jobTypeId)
+          .map(item => ({ jobTypeId: Number(item.jobTypeId), sequence: item.sequence, notes: item.notes || undefined })),
+      };
+      if (editingId) {
+        await api.updateJobGroup(editingId, { name: payload.name, description: payload.description, templateItems: payload.templateItems });
+      } else {
+        await api.createJobGroup(payload);
+      }
+      await refresh();
+      setShowForm(false);
+    } catch (err: any) { alert("Error: " + err.message); }
+    setSaving(false);
+  };
+
+  const handleDelete = async (id: number, name: string) => {
+    if (!confirm(`Delete "${name}"?`)) return;
+    try { await api.deleteJobGroup(id); await refresh(); }
+    catch (err: any) { alert("Error: " + err.message); }
+  };
+
+  const handleApply = async () => {
+    if (!applyingTemplate) return;
+    setApplying(true);
+    try {
+      await api.applyTemplate(applyingTemplate.id, {
+        customerId: Number(applyForm.customerId),
+        organisationId: (currentUser as any)?.organisationId || 1,
+        fieldId: applyForm.fieldId ? Number(applyForm.fieldId) : undefined,
+        assignedToUserId: applyForm.assignedToUserId ? Number(applyForm.assignedToUserId) : undefined,
+        plannedDate: applyForm.plannedDate || undefined,
+      });
+      await refresh();
+      setApplyingTemplate(null);
+      setApplyForm({ customerId: "", fieldId: "", assignedToUserId: "", plannedDate: "" });
+    } catch (err: any) { alert("Error: " + err.message); }
+    setApplying(false);
+  };
+
+  const statusColour = (status: string) => {
+    if (status === "completed") return "bg-emerald-100 text-emerald-700";
+    if (status === "cancelled") return "bg-red-50 text-red-600";
+    return "bg-field-100 text-field-700";
+  };
+
+  return (
+    <div>
+      <PageHeader
+        title="Work Orders"
+        subtitle="Group jobs into packages or one-off work orders"
+        action={
+          <div className="flex gap-2">
+            <Btn variant="secondary" onClick={() => openCreate(true)}>+ Package Template</Btn>
+            <Btn onClick={() => openCreate(false)}>+ Work Order</Btn>
+          </div>
+        }
+      />
+
+      {/* Tabs */}
+      <div className="flex gap-1.5 mb-5">
+        {(["orders", "templates"] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${tab === t ? "bg-field-100 text-field-700" : "text-stone-500 hover:bg-stone-100"}`}>
+            {t === "orders" ? `Work Orders (${workOrders.length})` : `Package Templates (${templates.length})`}
+          </button>
+        ))}
+      </div>
+
+      {/* List */}
+      <div className="space-y-3">
+        {displayed.length === 0 && (
+          <Card className="p-10 text-center text-stone-400 text-sm">
+            {tab === "templates"
+              ? "No package templates yet. Create one to quickly apply a set of jobs to any customer."
+              : "No work orders yet. Create one to group related jobs together."}
+          </Card>
+        )}
+        {displayed.map((g: any) => (
+          <Card key={g.id} className="p-4">
+            <div className="flex justify-between items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-bold text-sm">{g.name}</span>
+                  {!g.isTemplate && (
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${statusColour(g.status)}`}>
+                      {g.status}
+                    </span>
+                  )}
+                </div>
+                {g.customer && <div className="text-xs text-stone-500 mb-1">{g.customer.name}</div>}
+                {g.description && <div className="text-xs text-stone-400 mb-2">{g.description}</div>}
+
+                {/* Template items */}
+                {g.isTemplate && g.templateItems?.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {g.templateItems.map((item: any, i: number) => (
+                      <span key={item.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-stone-100 rounded text-xs text-stone-600">
+                        <span className="text-stone-400">{i + 1}.</span> {item.jobType?.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Work order jobs */}
+                {!g.isTemplate && g.jobs?.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {g.jobs.map((job: any) => (
+                      <div key={job.id} className="flex items-center gap-2 text-xs text-stone-600">
+                        <StatusBadge status={job.status} />
+                        <span>{job.title}</span>
+                        {job.field && <span className="text-stone-400">· {job.field.fieldName}</span>}
+                        {job.assignedTo && <span className="text-stone-400">· {job.assignedTo.name}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-1 flex-shrink-0">
+                {g.isTemplate && (
+                  <button onClick={() => { setApplyingTemplate(g); setApplyForm({ customerId: "", fieldId: "", assignedToUserId: "", plannedDate: "" }); }}
+                    className="px-2.5 py-1.5 text-xs font-medium text-harvest-700 bg-harvest-50 rounded-lg hover:bg-harvest-100 transition">
+                    Apply
+                  </button>
+                )}
+                <button onClick={() => openEdit(g)} className="px-2.5 py-1.5 text-xs font-medium text-field-700 bg-field-50 rounded-lg hover:bg-field-100 transition">Edit</button>
+                <button onClick={() => handleDelete(g.id, g.name)} className="px-2.5 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition">Delete</button>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Create / Edit Modal */}
+      <Modal isOpen={showForm} onClose={() => setShowForm(false)} title={editingId ? "Edit" : form.isTemplate ? "New Package Template" : "New Work Order"}>
+        <FormField label="Name" required>
+          <input className={inputClass} placeholder={form.isTemplate ? "e.g. Full Arable Season" : "e.g. Smith Farm — Spring 2026"} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+        </FormField>
+        {!form.isTemplate && (
+          <FormField label="Customer">
+            <select className={inputClass} value={form.customerId} onChange={e => setForm(f => ({ ...f, customerId: e.target.value }))}>
+              <option value="">Select customer...</option>
+              {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </FormField>
+        )}
+        <FormField label="Description">
+          <textarea className={inputClass} rows={2} placeholder="Optional notes..." value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+        </FormField>
+
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
+              {form.isTemplate ? "Job Sequence" : "Jobs"}
+            </label>
+            <button onClick={addItem} className="text-xs text-field-700 font-semibold hover:underline">+ Add Job Type</button>
+          </div>
+          {form.items.length === 0 && (
+            <div className="text-xs text-stone-400 py-2 text-center border border-dashed border-stone-200 rounded-lg">
+              No jobs added yet
+            </div>
+          )}
+          {form.items.map((item, i) => (
+            <div key={i} className="flex gap-2 mb-2 items-center">
+              <span className="text-xs text-stone-400 w-5 text-right flex-shrink-0">{i + 1}.</span>
+              <select className={`${inputClass} flex-1`} value={item.jobTypeId} onChange={e => updateItem(i, "jobTypeId", e.target.value)}>
+                <option value="">Select job type...</option>
+                {jobTypes.map((jt: any) => <option key={jt.id} value={jt.id}>{jt.name}</option>)}
+              </select>
+              <input className={`${inputClass} flex-1`} placeholder="Notes (optional)" value={item.notes} onChange={e => updateItem(i, "notes", e.target.value)} />
+              <button onClick={() => removeItem(i)} className="text-stone-400 hover:text-red-500 flex-shrink-0">✕</button>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2 mt-2">
+          <Btn variant="ghost" className="flex-1" onClick={() => setShowForm(false)}>Cancel</Btn>
+          <Btn className="flex-[2]" onClick={handleSave} disabled={saving || !form.name}>
+            {saving ? "Saving..." : editingId ? "Save Changes" : "Create"}
+          </Btn>
+        </div>
+      </Modal>
+
+      {/* Apply Template Modal */}
+      <Modal isOpen={!!applyingTemplate} onClose={() => setApplyingTemplate(null)} title={`Apply: ${applyingTemplate?.name || ""}`}>
+        <div className="mb-4 text-xs text-stone-500">
+          This will create a new work order with {applyingTemplate?.templateItems?.length || 0} job{applyingTemplate?.templateItems?.length !== 1 ? "s" : ""} for the selected customer.
+        </div>
+        <FormField label="Customer" required>
+          <select className={inputClass} value={applyForm.customerId} onChange={e => setApplyForm(f => ({ ...f, customerId: e.target.value, fieldId: "" }))}>
+            <option value="">Select customer...</option>
+            {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </FormField>
+        <FormField label="Field (apply to all jobs)">
+          <select className={inputClass} value={applyForm.fieldId} onChange={e => setApplyForm(f => ({ ...f, fieldId: e.target.value }))} disabled={!applyForm.customerId}>
+            <option value="">{applyForm.customerId ? "None / varies per job" : "Select customer first"}</option>
+            {customerFields.map((f: any) => <option key={f.id} value={f.id}>{f.fieldName} ({Number(f.hectares)} ac)</option>)}
+          </select>
+        </FormField>
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Assign To">
+            <select className={inputClass} value={applyForm.assignedToUserId} onChange={e => setApplyForm(f => ({ ...f, assignedToUserId: e.target.value }))}>
+              <option value="">Unassigned</option>
+              {users.filter((u: any) => u.active).map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Planned Date">
+            <input className={inputClass} type="date" value={applyForm.plannedDate} onChange={e => setApplyForm(f => ({ ...f, plannedDate: e.target.value }))} />
+          </FormField>
+        </div>
+        <div className="flex gap-2 mt-2">
+          <Btn variant="ghost" className="flex-1" onClick={() => setApplyingTemplate(null)}>Cancel</Btn>
+          <Btn className="flex-[2]" onClick={handleApply} disabled={applying || !applyForm.customerId}>
+            {applying ? "Creating..." : "Create Work Order"}
+          </Btn>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ============================================================
 // SIDEBAR & NAVIGATION
 // ============================================================
 function Sidebar({ currentView, setView, session }: { currentView: ViewId; setView: (v: ViewId) => void; session: any }) {
@@ -1826,6 +2118,7 @@ function Sidebar({ currentView, setView, session }: { currentView: ViewId; setVi
   const links: { id: ViewId; label: string; icon: string; show?: boolean }[] = [
     { id: "dashboard", label: "Dashboard", icon: "M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z M9 22V12h6v10", show: true },
     { id: "jobs", label: "Jobs", icon: "M2 7h20v14H2zM16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16", show: true },
+    { id: "work-orders", label: "Work Orders", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h6M9 16h4", show: canManageJobs },
     { id: "customers", label: "Customers", icon: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75", show: canManageJobs },
     { id: "invoices", label: "Invoices", icon: "M1 4h22v16H1zM1 10h22", show: isAdmin },
     { id: "job-types", label: "Job Types", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2", show: canManageJobs },
@@ -1917,6 +2210,7 @@ export default function FieldFlowApp() {
   const [jobTypes, setJobTypes] = useState<any[]>([]);
   const [machines, setMachines] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [jobGroups, setJobGroups] = useState<any[]>([]);
 
   const isAdmin = (session?.user as any)?.role === "admin";
   const isJobAdmin = (session?.user as any)?.role === "job_admin";
@@ -1925,7 +2219,7 @@ export default function FieldFlowApp() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [u, c, f, j, jt, m, i] = await Promise.all([
+      const [u, c, f, j, jt, m, i, jg] = await Promise.all([
         api.getUsers(),
         api.getCustomers(),
         api.getFields(),
@@ -1933,6 +2227,7 @@ export default function FieldFlowApp() {
         api.getJobTypes(),
         api.getMachines(),
         api.getInvoices(),
+        api.getJobGroups(),
       ]);
       setUsers(u);
       setCustomers(c);
@@ -1942,6 +2237,7 @@ export default function FieldFlowApp() {
       setJobTypes(jt);
       setMachines(m);
       setInvoices(i);
+      setJobGroups(jg);
     } catch (err) {
       console.error("Failed to load data:", err);
     }
@@ -2007,6 +2303,7 @@ export default function FieldFlowApp() {
       case "job-detail": return selectedJobId ? <JobDetail jobId={selectedJobId} onBack={handleBackToJobs} /> : <JobsView onSelectJob={handleSelectJob} />;
       case "customers": return <CustomersView />;
       case "invoices": return isAdmin ? <InvoicesView initialFilter={viewFilter} /> : <Dashboard {...dashboardProps} />;
+      case "work-orders": return canManageJobs ? <WorkOrdersView /> : <Dashboard {...dashboardProps} />;
       case "job-types": return <JobTypesView />;
       case "machines": return <MachinesView />;
       case "team": return isAdmin ? <TeamView /> : <Dashboard {...dashboardProps} />;
@@ -2015,7 +2312,7 @@ export default function FieldFlowApp() {
   };
 
   return (
-    <AppContext.Provider value={{ users, customers, fields, jobs, jobTypes, machines, invoices, currentUser, loading, refresh: loadAll }}>
+    <AppContext.Provider value={{ users, customers, fields, jobs, jobTypes, machines, invoices, jobGroups, currentUser, loading, refresh: loadAll }}>
       <div className="overflow-x-hidden w-full max-w-[100vw]">
         <Sidebar currentView={currentView} setView={handleSetView} session={session} />
         <MobileNav currentView={currentView} setView={handleSetView} />

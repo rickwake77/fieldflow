@@ -1837,7 +1837,13 @@ function WorkOrdersView() {
 
   // ── Apply-template state ───────────────────────────────────
   const [applyingTemplate, setApplyingTemplate] = useState<any>(null);
-  const [applyForm, setApplyForm] = useState({ customerId: "", fieldId: "", assignedToUserId: "", plannedDate: "" });
+  const [applyForm, setApplyForm] = useState({
+    customerId: "",
+    fieldId: "",
+    assignedToUserId: "",
+    plannedDate: "",
+    overrides: {} as Record<string, { assignedToUserId?: string; plannedDate?: string }>
+  });
   const [applying, setApplying] = useState(false);
 
   const templates = jobGroups.filter((g: any) => g.isTemplate);
@@ -1911,16 +1917,28 @@ function WorkOrdersView() {
     if (!applyingTemplate) return;
     setApplying(true);
     try {
+      // Build overrides for each job type
+      const overrides: Record<string, any> = {};
+      applyingTemplate.templateItems?.forEach((item: any) => {
+        const override = applyForm.overrides[String(item.jobTypeId)] || {};
+        overrides[String(item.jobTypeId)] = {
+          fieldId: override.fieldId ? Number(override.fieldId) : undefined,
+          assignedToUserId: override.assignedToUserId ? Number(override.assignedToUserId) : (applyForm.assignedToUserId ? Number(applyForm.assignedToUserId) : undefined),
+          plannedDate: override.plannedDate || applyForm.plannedDate || undefined,
+        };
+      });
+
       await api.applyTemplate(applyingTemplate.id, {
         customerId: Number(applyForm.customerId),
         organisationId: (currentUser as any)?.organisationId || 1,
         fieldId: applyForm.fieldId ? Number(applyForm.fieldId) : undefined,
         assignedToUserId: applyForm.assignedToUserId ? Number(applyForm.assignedToUserId) : undefined,
         plannedDate: applyForm.plannedDate || undefined,
+        overrides,
       });
       await refresh();
       setApplyingTemplate(null);
-      setApplyForm({ customerId: "", fieldId: "", assignedToUserId: "", plannedDate: "" });
+      setApplyForm({ customerId: "", fieldId: "", assignedToUserId: "", plannedDate: "", overrides: {} });
     } catch (err: any) { alert("Error: " + err.message); }
     setApplying(false);
   };
@@ -2006,7 +2024,7 @@ function WorkOrdersView() {
 
               <div className="flex gap-1 flex-shrink-0">
                 {g.isTemplate && (
-                  <button onClick={() => { setApplyingTemplate(g); setApplyForm({ customerId: "", fieldId: "", assignedToUserId: "", plannedDate: "" }); }}
+                  <button onClick={() => { setApplyingTemplate(g); setApplyForm({ customerId: "", fieldId: "", assignedToUserId: "", plannedDate: "", overrides: {} }); }}
                     className="px-2.5 py-1.5 text-xs font-medium text-harvest-700 bg-harvest-50 rounded-lg hover:bg-harvest-100 transition">
                     Apply
                   </button>
@@ -2086,17 +2104,52 @@ function WorkOrdersView() {
             {customerFields.map((f: any) => <option key={f.id} value={f.id}>{f.fieldName} ({Number(f.hectares)} ac)</option>)}
           </select>
         </FormField>
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label="Assign To">
-            <select className={inputClass} value={applyForm.assignedToUserId} onChange={e => setApplyForm(f => ({ ...f, assignedToUserId: e.target.value }))}>
-              <option value="">Unassigned</option>
-              {users.filter((u: any) => u.active).map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </select>
-          </FormField>
-          <FormField label="Planned Date">
-            <input className={inputClass} type="date" value={applyForm.plannedDate} onChange={e => setApplyForm(f => ({ ...f, plannedDate: e.target.value }))} />
-          </FormField>
-        </div>
+        <FormField label="Default Assign To (can override per job)">
+          <select className={inputClass} value={applyForm.assignedToUserId} onChange={e => setApplyForm(f => ({ ...f, assignedToUserId: e.target.value }))}>
+            <option value="">Unassigned</option>
+            {users.filter((u: any) => u.active).map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+        </FormField>
+        <FormField label="Default Planned Date (can override per job)">
+          <input className={inputClass} type="date" value={applyForm.plannedDate} onChange={e => setApplyForm(f => ({ ...f, plannedDate: e.target.value }))} />
+        </FormField>
+
+        {/* Per-job overrides */}
+        {applyingTemplate?.templateItems?.length > 0 && (
+          <div className="my-4 p-3 bg-stone-50 rounded-lg border border-stone-200">
+            <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3 block">
+              Assign Jobs Individually
+            </label>
+            <div className="space-y-2">
+              {applyingTemplate.templateItems.map((item: any, idx: number) => {
+                const override = applyForm.overrides[String(item.jobTypeId)] || {};
+                const assignedUserId = override.assignedToUserId || applyForm.assignedToUserId;
+                return (
+                  <div key={item.id} className="flex gap-2 items-end">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-stone-600 mb-1">{idx + 1}. {item.jobType?.name}</div>
+                      <select
+                        className={inputClass}
+                        value={assignedUserId}
+                        onChange={e => setApplyForm(f => ({
+                          ...f,
+                          overrides: {
+                            ...f.overrides,
+                            [String(item.jobTypeId)]: { ...override, assignedToUserId: e.target.value || undefined }
+                          }
+                        }))}
+                      >
+                        <option value="">{applyForm.assignedToUserId ? "(use default)" : "Unassigned"}</option>
+                        {users.filter((u: any) => u.active).map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="flex gap-2 mt-2">
           <Btn variant="ghost" className="flex-1" onClick={() => setApplyingTemplate(null)}>Cancel</Btn>
           <Btn className="flex-[2]" onClick={handleApply} disabled={applying || !applyForm.customerId}>

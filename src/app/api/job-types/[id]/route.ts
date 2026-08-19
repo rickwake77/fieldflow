@@ -1,11 +1,15 @@
 // src/app/api/job-types/[id]/route.ts
 import { prisma } from "@/lib/db";
 import { success, error, serverError, parseBody } from "@/lib/api-helpers";
+import { requireAdmin } from "@/lib/auth-guards";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, { params }: Params) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const { id } = await params;
     const body = await parseBody<Partial<{
       name: string;
@@ -23,6 +27,9 @@ export async function PATCH(request: Request, { params }: Params) {
 
 export async function DELETE(_request: Request, { params }: Params) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const { id } = await params;
     // Check if any jobs use this type
     const jobCount = await prisma.job.count({ where: { jobTypeId: Number(id) } });

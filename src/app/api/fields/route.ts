@@ -1,11 +1,15 @@
 // src/app/api/fields/route.ts
 import { prisma } from "@/lib/db";
 import { success, error, serverError, parseBody } from "@/lib/api-helpers";
+import { requireAuth, requireManager } from "@/lib/auth-guards";
 import { NextRequest } from "next/server";
 
 // GET /api/fields?customerId=1 — list fields, optionally filter by customer
 export async function GET(request: NextRequest) {
   try {
+    const { response } = await requireAuth();
+    if (response) return response;
+
     const customerId = request.nextUrl.searchParams.get("customerId");
     const fields = await prisma.field.findMany({
       where: customerId ? { customerId: Number(customerId) } : undefined,
@@ -21,6 +25,9 @@ export async function GET(request: NextRequest) {
 // POST /api/fields
 export async function POST(request: Request) {
   try {
+    const { response } = await requireManager();
+    if (response) return response;
+
     const body = await parseBody<{
       customerId: number;
       fieldName: string;

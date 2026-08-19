@@ -1,12 +1,20 @@
 // src/app/api/jobs/[id]/route.ts
 import { prisma } from "@/lib/db";
 import { success, error, serverError, parseBody } from "@/lib/api-helpers";
+import { requireAuth } from "@/lib/auth-guards";
 
 type Params = { params: Promise<{ id: string }> };
+
+const isManager = (role: string) => role === "admin" || role === "job_admin";
 
 // GET /api/jobs/:id — full detail with logs
 export async function GET(_request: Request, { params }: Params) {
   try {
+    const { session, response } = await requireAuth();
+    if (response) return response;
+    const role = (session.user as any).role;
+    const userId = (session.user as any).id;
+
     const { id } = await params;
     const job = await prisma.job.findUnique({
       where: { id: Number(id) },
@@ -29,16 +37,30 @@ export async function GET(_request: Request, { params }: Params) {
       },
     });
     if (!job) return error("Job not found", 404);
+    if (!isManager(role) && job.assignedToUserId !== userId) {
+      return error("Not authorized", 403);
+    }
     return success(job);
   } catch (err) {
     return serverError(err);
   }
 }
 
-// PATCH /api/jobs/:id — update job (including status changes)
+// PATCH /api/jobs/:id — update job (including status changes).
+// Contractors may only change the status of a job assigned to them (the
+// offline-critical path); everything else — reassigning, retitling,
+// rescheduling — is an admin/job_admin action.
 export async function PATCH(request: Request, { params }: Params) {
   try {
+    const { session, response } = await requireAuth();
+    if (response) return response;
+    const role = (session.user as any).role;
+    const userId = (session.user as any).id;
+
     const { id } = await params;
+    const existing = await prisma.job.findUnique({ where: { id: Number(id) } });
+    if (!existing) return error("Job not found", 404);
+
     const body = await parseBody<Partial<{
       assignedToUserId: number;
       title: string;
@@ -48,6 +70,14 @@ export async function PATCH(request: Request, { params }: Params) {
       unitType: string;
       status: string;
     }>>(request);
+
+    if (!isManager(role)) {
+      if (existing.assignedToUserId !== userId) return error("Not authorized", 403);
+      const fields = Object.keys(body);
+      if (fields.some((f) => f !== "status")) {
+        return error("Contractors can only update job status", 403);
+      }
+    }
 
     const data: Record<string, unknown> = { ...body };
     if (body.plannedDate) data.plannedDate = new Date(body.plannedDate);
@@ -71,6 +101,10 @@ export async function PATCH(request: Request, { params }: Params) {
 // DELETE /api/jobs/:id
 export async function DELETE(_request: Request, { params }: Params) {
   try {
+    const { session, response } = await requireAuth();
+    if (response) return response;
+    if (!isManager((session.user as any).role)) return error("Not authorized", 403);
+
     const { id } = await params;
     // Delete related logs first
     await prisma.jobLog.deleteMany({ where: { jobId: Number(id) } });

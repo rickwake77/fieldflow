@@ -1,6 +1,7 @@
 // src/app/api/job-groups/[id]/route.ts
 import { prisma } from "@/lib/db";
 import { success, error, serverError, parseBody } from "@/lib/api-helpers";
+import { requireAuth, requireManager } from "@/lib/auth-guards";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -21,6 +22,9 @@ const include = {
 
 export async function GET(_request: Request, { params }: Params) {
   try {
+    const { response } = await requireAuth();
+    if (response) return response;
+
     const { id } = await params;
     const group = await prisma.jobGroup.findUnique({ where: { id: Number(id) }, include });
     if (!group) return error("Not found", 404);
@@ -32,6 +36,9 @@ export async function GET(_request: Request, { params }: Params) {
 
 export async function PATCH(request: Request, { params }: Params) {
   try {
+    const { response } = await requireManager();
+    if (response) return response;
+
     const { id } = await params;
     const body = await parseBody<Partial<{
       name: string;
@@ -62,6 +69,9 @@ export async function PATCH(request: Request, { params }: Params) {
 
 export async function DELETE(_request: Request, { params }: Params) {
   try {
+    const { response } = await requireManager();
+    if (response) return response;
+
     const { id } = await params;
     // Unlink jobs from the group rather than deleting them
     await prisma.job.updateMany({ where: { jobGroupId: Number(id) }, data: { jobGroupId: null } });

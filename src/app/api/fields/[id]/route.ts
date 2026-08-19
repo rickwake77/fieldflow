@@ -1,11 +1,15 @@
 // src/app/api/fields/[id]/route.ts
 import { prisma } from "@/lib/db";
 import { success, error, serverError, parseBody } from "@/lib/api-helpers";
+import { requireAuth, requireManager } from "@/lib/auth-guards";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: Params) {
   try {
+    const { response } = await requireAuth();
+    if (response) return response;
+
     const { id } = await params;
     const field = await prisma.field.findUnique({
       where: { id: Number(id) },
@@ -20,6 +24,9 @@ export async function GET(_request: Request, { params }: Params) {
 
 export async function PATCH(request: Request, { params }: Params) {
   try {
+    const { response } = await requireManager();
+    if (response) return response;
+
     const { id } = await params;
     const body = await parseBody<Partial<{
       fieldName: string;
@@ -36,6 +43,9 @@ export async function PATCH(request: Request, { params }: Params) {
 
 export async function DELETE(_request: Request, { params }: Params) {
   try {
+    const { response } = await requireManager();
+    if (response) return response;
+
     const { id } = await params;
     await prisma.field.delete({ where: { id: Number(id) } });
     return success({ deleted: true });

@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs/promises";
 import JSZip from "jszip";
+import { requireAdmin } from "@/lib/auth-guards";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -138,25 +139,16 @@ function buildTotals(subtotal: number, vat: number, total: number): string {
   );
 }
 
+// A blank paragraph with an explicit height, used to add breathing room
+// between sections instead of relying on the template's default spacing
+function spacerPara(afterTwips: number): string {
+  return `<w:p><w:pPr><w:spacing w:after="${afterTwips}" w:line="240" w:lineRule="auto"/></w:pPr></w:p>`;
+}
+
 function buildInvNumBox(num: string): string {
   return (
-    `<w:tbl>` +
-    `<w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/>` +
-    `<w:tblInd w:w="7225" w:type="dxa"/>` +
-    `<w:tblBorders>` +
-    `<w:top w:val="single" w:sz="4" w:space="0" w:color="${B}" w:themeColor="background2" w:themeShade="BF"/>` +
-    `<w:left w:val="single" w:sz="4" w:space="0" w:color="${B}" w:themeColor="background2" w:themeShade="BF"/>` +
-    `<w:bottom w:val="single" w:sz="4" w:space="0" w:color="${B}" w:themeColor="background2" w:themeShade="BF"/>` +
-    `<w:right w:val="single" w:sz="4" w:space="0" w:color="${B}" w:themeColor="background2" w:themeShade="BF"/>` +
-    `<w:insideH w:val="none" w:sz="0" w:space="0" w:color="auto"/>` +
-    `<w:insideV w:val="none" w:sz="0" w:space="0" w:color="auto"/>` +
-    `</w:tblBorders>` +
-    `<w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/></w:tblPr>` +
-    `<w:tblGrid><w:gridCol w:w="1791"/></w:tblGrid>` +
-    `<w:tr><w:tc><w:tcPr><w:tcW w:w="1791" w:type="dxa"/></w:tcPr>` +
-    `<w:p><w:pPr><w:jc w:val="right"/></w:pPr>` +
-    `<w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t>${esc(num)}</w:t></w:r></w:p></w:tc></w:tr>` +
-    `</w:tbl>`
+    `<w:p><w:pPr><w:jc w:val="right"/><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>` +
+    `<w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t>${esc(num)}</w:t></w:r></w:p>`
   );
 }
 
@@ -166,15 +158,49 @@ function customerBlock(cust: {
   address?: string | null;
 }): string {
   const lines: string[] = [];
+  if (cust.contact) lines.push(`FAO: ${cust.contact}`);
   if (cust.name) lines.push(cust.name);
-  if (cust.contact) lines.push(cust.contact);
   if (cust.address) {
     cust.address.split(/[,\n]/).forEach((l) => {
       const t = l.trim();
       if (t) lines.push(t);
     });
   }
-  return lines.map((l) => `<w:p><w:r><w:t>${esc(l)}</w:t></w:r></w:p>`).join("");
+  // Zero out the template's default 8pt "space after paragraph" so consecutive
+  // address lines sit tight together instead of looking like separate paragraphs
+  return lines
+    .map((l) => `<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:t>${esc(l)}</w:t></w:r></w:p>`)
+    .join("");
+}
+
+// Puts the customer's FAO/name/address block and the invoice number side by
+// side in a borderless two-column table, so "FAO:" lines up with "INVOICE
+// NUMBER:" instead of sitting below it
+function buildHeaderRow(customerXml: string, invoiceNumber: string): string {
+  const LEFT_W = 5400;
+  const RIGHT_W = 3600;
+  return (
+    `<w:tbl>` +
+    `<w:tblPr><w:tblW w:w="${LEFT_W + RIGHT_W}" w:type="dxa"/>` +
+    `<w:tblBorders>` +
+    `<w:top w:val="none" w:sz="0" w:space="0" w:color="auto"/>` +
+    `<w:left w:val="none" w:sz="0" w:space="0" w:color="auto"/>` +
+    `<w:bottom w:val="none" w:sz="0" w:space="0" w:color="auto"/>` +
+    `<w:right w:val="none" w:sz="0" w:space="0" w:color="auto"/>` +
+    `<w:insideH w:val="none" w:sz="0" w:space="0" w:color="auto"/>` +
+    `<w:insideV w:val="none" w:sz="0" w:space="0" w:color="auto"/>` +
+    `</w:tblBorders>` +
+    `<w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/></w:tblPr>` +
+    `<w:tblGrid><w:gridCol w:w="${LEFT_W}"/><w:gridCol w:w="${RIGHT_W}"/></w:tblGrid>` +
+    `<w:tr>` +
+    `<w:tc><w:tcPr><w:tcW w:w="${LEFT_W}" w:type="dxa"/></w:tcPr>${customerXml}</w:tc>` +
+    `<w:tc><w:tcPr><w:tcW w:w="${RIGHT_W}" w:type="dxa"/></w:tcPr>` +
+    `<w:p><w:pPr><w:jc w:val="right"/><w:spacing w:after="80" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:t>INVOICE NUMBER:</w:t></w:r></w:p>` +
+    buildInvNumBox(invoiceNumber) +
+    `</w:tc>` +
+    `</w:tr>` +
+    `</w:tbl>`
+  );
 }
 
 function extractSectPr(xml: string): string {
@@ -194,6 +220,9 @@ function extractSectPr(xml: string): string {
 
 export async function GET(_request: Request, { params }: Params) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const { id } = await params;
     const invoice = await prisma.invoice.findUnique({
       where: { id: Number(id) },
@@ -242,14 +271,9 @@ export async function GET(_request: Request, { params }: Params) {
 
     const newBody =
       `<w:body>` +
-      `<w:p><w:pPr><w:jc w:val="right"/></w:pPr></w:p>` +
-      `<w:p><w:pPr><w:jc w:val="right"/></w:pPr>` +
-      `<w:r><w:t>INVOICE NUMBER:</w:t></w:r></w:p>` +
-      buildInvNumBox(invoice.invoiceNumber) +
-      `<w:p><w:pPr><w:jc w:val="right"/></w:pPr></w:p>` +
-      `<w:p><w:pPr><w:jc w:val="right"/></w:pPr></w:p>` +
-      customerBlock(invoice.customer) +
-      `<w:p/>` +
+      spacerPara(240) +
+      buildHeaderRow(customerBlock(invoice.customer), invoice.invoiceNumber) +
+      spacerPara(240) +
       buildItemsTable(lineItems, dateStr) +
       `<w:p><w:pPr><w:jc w:val="right"/></w:pPr></w:p>` +
       buildTotals(invoiceSubtotal, invoiceVat, Number(invoice.total)) +

@@ -49,6 +49,7 @@ export default function OfflineBar({ onSynced }: { onSynced?: () => void }) {
   const handleSync = async () => {
     setSyncing(true);
     setLastSyncResult(null);
+    let hasPermanentFailure = false;
     try {
       const result = await syncQueue();
       await refreshQueue();
@@ -56,7 +57,17 @@ export default function OfflineBar({ onSynced }: { onSynced?: () => void }) {
         setLastSyncResult(`${result.synced} item${result.synced !== 1 ? "s" : ""} synced`);
         onSynced?.();
       }
-      if (result.failed > 0) {
+      if (result.permanentFailures.length > 0) {
+        hasPermanentFailure = true;
+        // Show the first failure's actual reason rather than just a count —
+        // this is data (a status change, logged work) that just got dropped,
+        // the user should know why so they can decide whether to redo it
+        const first = result.permanentFailures[0];
+        const extra = result.permanentFailures.length > 1 ? ` (+${result.permanentFailures.length - 1} more)` : "";
+        setLastSyncResult((prev) =>
+          `${prev ? prev + ". " : ""}Couldn't sync "${first.description}": ${first.message}${extra}`
+        );
+      } else if (result.failed > 0) {
         setLastSyncResult((prev) =>
           prev ? `${prev}, ${result.failed} failed` : `${result.failed} failed to sync`
         );
@@ -66,8 +77,9 @@ export default function OfflineBar({ onSynced }: { onSynced?: () => void }) {
     }
     setSyncing(false);
 
-    // Clear the result message after 4 seconds
-    setTimeout(() => setLastSyncResult(null), 4000);
+    // Clear the result message after 4 seconds — longer if there's an actual
+    // error to read, so it doesn't vanish before the user can see why
+    setTimeout(() => setLastSyncResult(null), hasPermanentFailure ? 8000 : 4000);
   };
 
   // Don't show anything if online and no queue

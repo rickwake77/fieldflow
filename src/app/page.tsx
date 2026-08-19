@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef, createContext, useContext, ReactNode } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api-client";
@@ -9,7 +9,7 @@ import OfflineBar from "@/components/OfflineBar";
 // ============================================================
 // TYPES
 // ============================================================
-type ViewId = "dashboard" | "jobs" | "customers" | "invoices" | "machines" | "job-detail" | "team" | "job-types" | "work-orders";
+type ViewId = "dashboard" | "jobs" | "customers" | "invoices" | "machines" | "job-detail" | "team" | "job-types" | "work-orders" | "data-tools";
 
 // ============================================================
 // CONTEXT
@@ -302,7 +302,8 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
 // JOBS
 // ============================================================
 function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => void; initialFilter?: string }) {
-  const { jobs, customers, fields, jobTypes, users, machines, refresh } = useApp();
+  const { jobs, customers, fields, jobTypes, users, machines, currentUser, refresh } = useApp();
+  const canManageJobs = currentUser?.role === "admin" || currentUser?.role === "job_admin";
   const [filter, setFilter] = useState(initialFilter || "all");
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -386,7 +387,7 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
       <PageHeader
         title="Jobs"
         subtitle={`${jobs.length} total jobs`}
-        action={<Btn onClick={() => setShowCreate(true)}>+ New Job</Btn>}
+        action={canManageJobs ? <Btn onClick={() => setShowCreate(true)}>+ New Job</Btn> : undefined}
       />
 
       <div className="flex gap-2 mb-5 flex-wrap">
@@ -529,7 +530,8 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
 // JOB DETAIL
 // ============================================================
 function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
-  const { machines, users, refresh } = useApp();
+  const { machines, users, currentUser, refresh } = useApp();
+  const canManageJobs = currentUser?.role === "admin" || currentUser?.role === "job_admin";
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showLogForm, setShowLogForm] = useState(false);
@@ -646,9 +648,11 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
         <div className="flex justify-between items-start gap-2 mb-4">
           <h2 className="text-xl font-bold min-w-0 flex-1 truncate">{job.title}</h2>
           <div className="flex gap-2 flex-shrink-0 items-center">
-            <button onClick={openEdit} className="px-5 py-3 rounded-xl text-sm font-bold text-field-700 bg-field-50 hover:bg-field-100 transition">
-              Edit
-            </button>
+            {canManageJobs && (
+              <button onClick={openEdit} className="px-5 py-3 rounded-xl text-sm font-bold text-field-700 bg-field-50 hover:bg-field-100 transition">
+                Edit
+              </button>
+            )}
             <StatusBadge status={job.status} />
           </div>
         </div>
@@ -691,15 +695,17 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
               Reopen Job
             </button>
           )}
-          <button
-            onClick={async () => {
-              if (!confirm(`Delete "${job.title}"? This will also delete all work logs for this job.`)) return;
-              try { await api.deleteJob(job.id); await refresh(); onBack(); } catch (err: any) { alert("Error: " + err.message); }
-            }}
-            className="w-full py-4 rounded-2xl text-base font-bold text-red-700 bg-red-50 hover:bg-red-600 hover:text-white transition"
-          >
-            Delete Job
-          </button>
+          {canManageJobs && (
+            <button
+              onClick={async () => {
+                if (!confirm(`Delete "${job.title}"? This will also delete all work logs for this job.`)) return;
+                try { await api.deleteJob(job.id); await refresh(); onBack(); } catch (err: any) { alert("Error: " + err.message); }
+              }}
+              className="w-full py-4 rounded-2xl text-base font-bold text-red-700 bg-red-50 hover:bg-red-600 hover:text-white transition"
+            >
+              Delete Job
+            </button>
+          )}
         </div>
       </Card>
 
@@ -1291,15 +1297,15 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
     }
   };
 
-  const handleDownloadDocx = async (invoiceId: number, invoiceNumber: string) => {
+  const handleDownload = async (invoiceId: number, invoiceNumber: string, format: "docx" | "pdf") => {
     try {
-      const response = await fetch(`/api/invoices/${invoiceId}/docx`);
+      const response = await fetch(`/api/invoices/${invoiceId}/${format}`);
       if (!response.ok) throw new Error("Failed to generate document");
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${invoiceNumber}.docx`;
+      a.download = `${invoiceNumber}.${format}`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -1350,17 +1356,18 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                     <td className="px-4 py-3 text-sm font-mono font-semibold">{fmtCurrency(Number(inv.total))}</td>
                     <td className="px-4 py-3"><StatusBadge status={inv.status} /></td>
                     <td className="px-4 py-3">
-                      <div className="flex gap-1">
+                      <div className="flex gap-1.5 flex-wrap">
                         {inv.status === "draft" && (
                           <>
-                            <button onClick={() => openEditInvoice(inv)} className="text-xs text-stone-600 hover:underline">Edit</button>
-                            <button onClick={() => handleStatusUpdate(inv.id, "sent")} className="text-xs text-blue-600 hover:underline">Send</button>
+                            <button onClick={() => openEditInvoice(inv)} className="px-2.5 py-1.5 text-xs font-medium text-stone-600 bg-stone-100 rounded-lg hover:bg-stone-200 transition">Edit</button>
+                            <button onClick={() => handleStatusUpdate(inv.id, "sent")} className="px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition">Send</button>
                           </>
                         )}
                         {inv.status === "sent" && (
-                          <button onClick={() => handleStatusUpdate(inv.id, "paid")} className="text-xs text-emerald-600 hover:underline">Mark Paid</button>
+                          <button onClick={() => handleStatusUpdate(inv.id, "paid")} className="px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition">Mark Paid</button>
                         )}
-                        <button onClick={() => handleDownloadDocx(inv.id, inv.invoiceNumber)} className="text-xs text-field-700 hover:underline">Download</button>
+                        <button onClick={() => handleDownload(inv.id, inv.invoiceNumber, "docx")} className="px-2.5 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition">Word</button>
+                        <button onClick={() => handleDownload(inv.id, inv.invoiceNumber, "pdf")} className="px-2.5 py-1.5 text-xs font-medium text-harvest-700 bg-harvest-50 rounded-lg hover:bg-harvest-100 transition">PDF</button>
                       </div>
                     </td>
                   </tr>
@@ -1384,11 +1391,12 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                   <div className="text-xs text-stone-400">Due {fmtDate(inv.dueDate)}</div>
                   <div className="font-bold font-mono">{fmtCurrency(Number(inv.total))}</div>
                 </div>
-                <div className="flex gap-2 mt-3 pt-2 border-t border-stone-100">
-                  {inv.status === "draft" && <button onClick={() => openEditInvoice(inv)} className="text-xs text-stone-600 font-semibold">Edit</button>}
-                  {inv.status === "draft" && <button onClick={() => handleStatusUpdate(inv.id, "sent")} className="text-xs text-blue-600 font-semibold">Mark Sent</button>}
-                  {inv.status === "sent" && <button onClick={() => handleStatusUpdate(inv.id, "paid")} className="text-xs text-emerald-600 font-semibold">Mark Paid</button>}
-                  <button onClick={() => handleDownloadDocx(inv.id, inv.invoiceNumber)} className="text-xs text-field-700 font-semibold">Download</button>
+                <div className="flex gap-1.5 flex-wrap mt-3 pt-2 border-t border-stone-100">
+                  {inv.status === "draft" && <button onClick={() => openEditInvoice(inv)} className="px-2.5 py-1.5 text-xs font-medium text-stone-600 bg-stone-100 rounded-lg hover:bg-stone-200 transition">Edit</button>}
+                  {inv.status === "draft" && <button onClick={() => handleStatusUpdate(inv.id, "sent")} className="px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition">Mark Sent</button>}
+                  {inv.status === "sent" && <button onClick={() => handleStatusUpdate(inv.id, "paid")} className="px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition">Mark Paid</button>}
+                  <button onClick={() => handleDownload(inv.id, inv.invoiceNumber, "docx")} className="px-2.5 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition">Word</button>
+                  <button onClick={() => handleDownload(inv.id, inv.invoiceNumber, "pdf")} className="px-2.5 py-1.5 text-xs font-medium text-harvest-700 bg-harvest-50 rounded-lg hover:bg-harvest-100 transition">PDF</button>
                 </div>
               </Card>
             ))}
@@ -1781,6 +1789,141 @@ function MachinesView() {
           </Btn>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+// ============================================================
+// DATA TOOLS — bulk CSV import/export (Admin only)
+// ============================================================
+type ImportResult = { created: number; updated: number; errors: { row: number; message: string }[] };
+
+function DataToolCard({ label, count, columnsHint, exportUrl, importUrl, filename, onImported }: {
+  label: string; count: number; columnsHint: string; exportUrl: string; importUrl: string; filename: string;
+  onImported: () => Promise<void>;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleExport = async () => {
+    setExporting(true);
+    setError(null);
+    try {
+      const response = await fetch(exportUrl);
+      if (!response.ok) throw new Error("Failed to export");
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      setError("Error exporting: " + err.message);
+    }
+    setExporting(false);
+  };
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file next time
+    if (!file) return;
+    setImporting(true);
+    setError(null);
+    setResult(null);
+    try {
+      const csv = await file.text();
+      const res = await fetch(importUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Import failed");
+      setResult(json.data);
+      if (json.data.created > 0 || json.data.updated > 0) await onImported();
+    } catch (err: any) {
+      setError("Error importing: " + err.message);
+    }
+    setImporting(false);
+  };
+
+  return (
+    <Card className="p-5">
+      <div className="flex justify-between items-start gap-3 mb-1">
+        <div>
+          <h3 className="text-sm font-bold text-stone-900">{label}</h3>
+          <p className="text-xs text-stone-500 mt-0.5">{count} record{count === 1 ? "" : "s"} · columns: {columnsHint}</p>
+        </div>
+      </div>
+
+      <div className="flex gap-2 mt-4">
+        <button onClick={handleExport} disabled={exporting}
+          className="px-3.5 py-2 text-xs font-semibold text-field-700 bg-field-50 rounded-lg hover:bg-field-100 disabled:opacity-50 transition">
+          {exporting ? "Exporting..." : "Export CSV"}
+        </button>
+        <button onClick={() => fileInputRef.current?.click()} disabled={importing}
+          className="px-3.5 py-2 text-xs font-semibold text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition">
+          {importing ? "Importing..." : "Import CSV"}
+        </button>
+        <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleFileSelected} />
+      </div>
+
+      {error && <div className="mt-3 text-xs text-red-600">{error}</div>}
+
+      {result && (
+        <div className="mt-3 p-3 rounded-lg bg-stone-50 border border-stone-200">
+          <div className="text-xs font-semibold text-stone-700">
+            {result.created} created · {result.updated} updated
+            {result.errors.length > 0 && ` · ${result.errors.length} error${result.errors.length === 1 ? "" : "s"}`}
+          </div>
+          {result.errors.length > 0 && (
+            <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+              {result.errors.map((e, i) => (
+                <div key={i} className="text-[11px] text-red-600">Row {e.row}: {e.message}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function DataToolsView() {
+  const { customers, jobTypes, machines, refresh } = useApp();
+
+  return (
+    <div>
+      <PageHeader title="Data Tools" subtitle="Bulk import and export via CSV — admin only" />
+      <div className="space-y-4">
+        <DataToolCard
+          label="Customers" count={customers.length}
+          columnsHint="id, name, contact, phone, email, address"
+          exportUrl="/api/customers/export" importUrl="/api/customers/import" filename="customers.csv"
+          onImported={refresh}
+        />
+        <DataToolCard
+          label="Job Types" count={jobTypes.length}
+          columnsHint="id, name, billingUnit, defaultRate, vatApplicable, description"
+          exportUrl="/api/job-types/export" importUrl="/api/job-types/import" filename="job-types.csv"
+          onImported={refresh}
+        />
+        <DataToolCard
+          label="Machines" count={machines.length}
+          columnsHint="id, name, machineType, registration, active"
+          exportUrl="/api/machines/export" importUrl="/api/machines/import" filename="machines.csv"
+          onImported={refresh}
+        />
+      </div>
+      <p className="text-xs text-stone-400 mt-4">
+        Leave the "id" column blank to create a new record. Export first to get a starting template, or to bulk-edit existing data — re-importing it will update matching rows by id and add any new ones.
+      </p>
     </div>
   );
 }
@@ -2355,6 +2498,7 @@ function Sidebar({ currentView, setView, session }: { currentView: ViewId; setVi
     { id: "job-types", label: "Job Types", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2", show: canManageJobs },
     { id: "machines", label: "Machines", icon: "M7 17a3 3 0 100-6 3 3 0 000 6zM19 17a2 2 0 100-4 2 2 0 000 4zM5 17H3V9l4-4h6l3 4h5v8h-2", show: canManageJobs },
     { id: "team", label: "Team", icon: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8M20 8v6M23 11h-6", show: isAdmin },
+    { id: "data-tools", label: "Data Tools", icon: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12", show: isAdmin },
   ];
   const visibleLinks = links.filter(l => l.show);
 
@@ -2409,6 +2553,7 @@ function MobileNav({ currentView, setView, session }: { currentView: ViewId; set
     { id: "jobs", label: "Jobs", icon: "M2 7h20v14H2zM16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16", show: true },
     { id: "customers", label: "Customers", icon: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8", show: canManageJobs },
     { id: "invoices", label: "Invoices", icon: "M1 4h22v16H1zM1 10h22", show: isAdmin },
+    { id: "data-tools", label: "Data", icon: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12", show: isAdmin },
   ];
   const visibleTabs = tabs.filter(t => t.show);
   return (
@@ -2461,7 +2606,7 @@ export default function FieldFlowApp() {
         api.getJobs(),
         api.getJobTypes(),
         api.getMachines(),
-        api.getInvoices(),
+        isAdmin ? api.getInvoices() : Promise.resolve([]), // /api/invoices is admin-only server-side now
         api.getJobGroups(),
       ]);
       setUsers(u);
@@ -2477,7 +2622,7 @@ export default function FieldFlowApp() {
       console.error("Failed to load data:", err);
     }
     setLoading(false);
-  }, [canManageJobs, currentUserId]);
+  }, [canManageJobs, currentUserId, isAdmin]);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -2542,6 +2687,7 @@ export default function FieldFlowApp() {
       case "job-types": return canManageJobs ? <JobTypesView /> : <Dashboard {...dashboardProps} />;
       case "machines": return canManageJobs ? <MachinesView /> : <Dashboard {...dashboardProps} />;
       case "team": return isAdmin ? <TeamView /> : <Dashboard {...dashboardProps} />;
+      case "data-tools": return isAdmin ? <DataToolsView /> : <Dashboard {...dashboardProps} />;
       default: return <Dashboard {...dashboardProps} />;
     }
   };

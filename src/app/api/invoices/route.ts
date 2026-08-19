@@ -1,10 +1,14 @@
 // src/app/api/invoices/route.ts
 import { prisma } from "@/lib/db";
 import { success, error, serverError, parseBody } from "@/lib/api-helpers";
+import { requireAdmin } from "@/lib/auth-guards";
 
 // GET /api/invoices
 export async function GET() {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const invoices = await prisma.invoice.findMany({
       include: {
         customer: { select: { id: true, name: true } },
@@ -21,6 +25,9 @@ export async function GET() {
 // POST /api/invoices — generate invoice from completed jobs
 export async function POST(request: Request) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const body = await parseBody<{
       customerId: number;
       jobIds: number[];

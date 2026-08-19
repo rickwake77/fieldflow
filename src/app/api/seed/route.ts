@@ -1,12 +1,21 @@
 // src/app/api/seed/route.ts
 // Convenience endpoint to trigger re-seeding from the browser
-// WARNING: This drops all data! Remove before production.
+// WARNING: This drops all data! Admin-only, and hard-disabled outside
+// local development regardless of role — a compromised admin session
+// shouldn't be able to wipe a production database via a dev convenience tool.
 
 import { prisma } from "@/lib/db";
-import { success, serverError } from "@/lib/api-helpers";
+import { success, error, serverError } from "@/lib/api-helpers";
+import { requireAdmin } from "@/lib/auth-guards";
 
 export async function POST() {
   try {
+    if (process.env.NODE_ENV === "production") {
+      return error("This endpoint is disabled in production", 404);
+    }
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     // Clear in dependency order
     await prisma.invoiceItem.deleteMany();
     await prisma.invoice.deleteMany();

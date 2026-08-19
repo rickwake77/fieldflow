@@ -1,6 +1,7 @@
 // src/app/api/job-groups/route.ts
 import { prisma } from "@/lib/db";
 import { success, error, serverError, parseBody } from "@/lib/api-helpers";
+import { requireAuth, requireManager } from "@/lib/auth-guards";
 
 const include = {
   customer: { select: { id: true, name: true } },
@@ -21,6 +22,9 @@ const include = {
 // GET /api/job-groups
 export async function GET() {
   try {
+    const { response } = await requireAuth();
+    if (response) return response;
+
     const groups = await prisma.jobGroup.findMany({
       include,
       orderBy: { createdAt: "desc" },
@@ -34,8 +38,11 @@ export async function GET() {
 // POST /api/job-groups — create a template or a work order
 export async function POST(request: Request) {
   try {
+    const { session, response } = await requireManager();
+    if (response) return response;
+    const organisationId = (session.user as any).organisationId;
+
     const body = await parseBody<{
-      organisationId: number;
       name: string;
       description?: string;
       isTemplate: boolean;
@@ -45,13 +52,13 @@ export async function POST(request: Request) {
       templateItems?: Array<{ jobTypeId: number; sequence: number; notes?: string }>;
     }>(request);
 
-    if (!body.name || !body.organisationId) {
-      return error("name and organisationId are required");
+    if (!body.name) {
+      return error("name is required");
     }
 
     const group = await prisma.jobGroup.create({
       data: {
-        organisationId: body.organisationId,
+        organisationId,
         name: body.name,
         description: body.description,
         isTemplate: body.isTemplate,

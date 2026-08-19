@@ -1,9 +1,13 @@
 // src/app/api/machines/route.ts
 import { prisma } from "@/lib/db";
 import { success, error, serverError, parseBody } from "@/lib/api-helpers";
+import { requireAuth, requireManager } from "@/lib/auth-guards";
 
 export async function GET() {
   try {
+    const { response } = await requireAuth();
+    if (response) return response;
+
     const machines = await prisma.machine.findMany({
       include: { _count: { select: { jobLogs: true } } },
       orderBy: { name: "asc" },
@@ -16,18 +20,21 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const { session, response } = await requireManager();
+    if (response) return response;
+    const organisationId = (session.user as any).organisationId;
+
     const body = await parseBody<{
-      organisationId: number;
       name: string;
       machineType: string;
       registration?: string;
     }>(request);
 
-    if (!body.name || !body.machineType || !body.organisationId) {
-      return error("name, machineType, and organisationId are required");
+    if (!body.name || !body.machineType) {
+      return error("name and machineType are required");
     }
 
-    const machine = await prisma.machine.create({ data: body });
+    const machine = await prisma.machine.create({ data: { ...body, organisationId } });
     return success(machine, 201);
   } catch (err) {
     return serverError(err);

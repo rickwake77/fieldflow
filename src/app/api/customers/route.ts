@@ -1,10 +1,14 @@
 // src/app/api/customers/route.ts
 import { prisma } from "@/lib/db";
 import { success, error, serverError, parseBody } from "@/lib/api-helpers";
+import { requireAuth, requireManager } from "@/lib/auth-guards";
 
 // GET /api/customers — list all customers with field count
 export async function GET() {
   try {
+    const { response } = await requireAuth();
+    if (response) return response;
+
     const customers = await prisma.customer.findMany({
       include: {
         fields: { select: { id: true, fieldName: true, hectares: true } },
@@ -21,6 +25,9 @@ export async function GET() {
 // POST /api/customers — create a new customer
 export async function POST(request: Request) {
   try {
+    const { response } = await requireManager();
+    if (response) return response;
+
     const body = await parseBody<{
       name: string;
       contact?: string;

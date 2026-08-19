@@ -1,11 +1,15 @@
 // src/app/api/invoices/[id]/route.ts
 import { prisma } from "@/lib/db";
 import { success, error, serverError, parseBody } from "@/lib/api-helpers";
+import { requireAdmin } from "@/lib/auth-guards";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: Params) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const { id } = await params;
     const invoice = await prisma.invoice.findUnique({
       where: { id: Number(id) },
@@ -26,6 +30,9 @@ export async function GET(_request: Request, { params }: Params) {
 // PATCH — status updates, or full line-item edit for draft invoices
 export async function PATCH(request: Request, { params }: Params) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const { id } = await params;
     const body = await parseBody<Partial<{
       status: string;
@@ -93,6 +100,9 @@ export async function PATCH(request: Request, { params }: Params) {
 
 export async function DELETE(_request: Request, { params }: Params) {
   try {
+    const { response } = await requireAdmin();
+    if (response) return response;
+
     const { id } = await params;
     await prisma.invoiceItem.deleteMany({ where: { invoiceId: Number(id) } });
     await prisma.invoice.delete({ where: { id: Number(id) } });

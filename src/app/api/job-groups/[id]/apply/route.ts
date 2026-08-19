@@ -2,15 +2,19 @@
 // Applies a package template to a customer, creating a work order with individual jobs.
 import { prisma } from "@/lib/db";
 import { success, error, serverError, parseBody } from "@/lib/api-helpers";
+import { requireManager } from "@/lib/auth-guards";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, { params }: Params) {
   try {
+    const { session, response } = await requireManager();
+    if (response) return response;
+    const organisationId = (session.user as any).organisationId;
+
     const { id } = await params;
     const body = await parseBody<{
       customerId: number;
-      organisationId: number;
       assignedToUserId?: number;
       fieldId?: number;
       plannedDate?: string;
@@ -18,8 +22,8 @@ export async function POST(request: Request, { params }: Params) {
       overrides?: Record<string, { fieldId?: number; plannedDate?: string; assignedToUserId?: number }>;
     }>(request);
 
-    if (!body.customerId || !body.organisationId) {
-      return error("customerId and organisationId are required");
+    if (!body.customerId) {
+      return error("customerId is required");
     }
 
     // Load the template
@@ -40,7 +44,7 @@ export async function POST(request: Request, { params }: Params) {
     // Create a new work order (non-template group) for this customer
     const workOrder = await prisma.jobGroup.create({
       data: {
-        organisationId: body.organisationId,
+        organisationId,
         name: template.name,
         description: template.description,
         isTemplate: false,

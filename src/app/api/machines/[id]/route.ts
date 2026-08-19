@@ -1,11 +1,15 @@
 // src/app/api/machines/[id]/route.ts
 import { prisma } from "@/lib/db";
 import { success, error, serverError, parseBody } from "@/lib/api-helpers";
+import { requireManager } from "@/lib/auth-guards";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, { params }: Params) {
   try {
+    const { response } = await requireManager();
+    if (response) return response;
+
     const { id } = await params;
     const body = await parseBody<Partial<{
       name: string;
@@ -22,6 +26,9 @@ export async function PATCH(request: Request, { params }: Params) {
 
 export async function DELETE(_request: Request, { params }: Params) {
   try {
+    const { response } = await requireManager();
+    if (response) return response;
+
     const { id } = await params;
     const logCount = await prisma.jobLog.count({ where: { machineId: Number(id) } });
     if (logCount > 0) return error(`Cannot delete: ${logCount} work logs reference this machine. Deactivate instead.`);

@@ -160,10 +160,13 @@ export async function updateQueuedAction(id: number, updates: Partial<QueuedActi
 
 // ── Sync Engine ─────────────────────────────────────────────
 
-export async function syncQueue(): Promise<{ synced: number; failed: number }> {
+export type SyncFailure = { description: string; message: string };
+
+export async function syncQueue(): Promise<{ synced: number; failed: number; permanentFailures: SyncFailure[] }> {
   const actions = await getQueuedActions();
   let synced = 0;
   let failed = 0;
+  const permanentFailures: SyncFailure[] = [];
 
   for (const action of actions) {
     try {
@@ -177,9 +180,19 @@ export async function syncQueue(): Promise<{ synced: number; failed: number }> {
         await removeQueuedAction(action.id!);
         synced++;
       } else {
-        // If it's a client error (4xx), don't retry — remove it
+        // If it's a client error (4xx), don't retry — remove it, but surface
+        // it to the user rather than only logging it, since this is data
+        // (logged work, a status change) that would otherwise vanish silently
         if (res.status >= 400 && res.status < 500) {
-          console.warn(`Sync failed permanently for action ${action.id}:`, await res.text());
+          let message = `HTTP ${res.status}`;
+          try {
+            const json = await res.json();
+            if (json?.error) message = json.error;
+          } catch {
+            // response wasn't JSON — keep the generic status message
+          }
+          console.warn(`Sync failed permanently for action ${action.id}:`, message);
+          permanentFailures.push({ description: action.description, message });
           await removeQueuedAction(action.id!);
           failed++;
         } else {
@@ -194,7 +207,7 @@ export async function syncQueue(): Promise<{ synced: number; failed: number }> {
     }
   }
 
-  return { synced, failed };
+  return { synced, failed, permanentFailures };
 }
 
 // ── Online Detection ────────────────────────────────────────

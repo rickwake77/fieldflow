@@ -1,11 +1,17 @@
 // src/app/api/jobs/route.ts
 import { prisma } from "@/lib/db";
 import { success, error, serverError, parseBody } from "@/lib/api-helpers";
+import { requireAuth, requireManager } from "@/lib/auth-guards";
 import { NextRequest } from "next/server";
 
 // GET /api/jobs?status=scheduled&assignedTo=2&customerId=1
 export async function GET(request: NextRequest) {
   try {
+    const { session, response } = await requireAuth();
+    if (response) return response;
+    const role = (session.user as any).role;
+    const userId = (session.user as any).id;
+
     const sp = request.nextUrl.searchParams;
     const status = sp.get("status");
     const assignedTo = sp.get("assignedTo");
@@ -13,8 +19,14 @@ export async function GET(request: NextRequest) {
 
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
-    if (assignedTo) where.assignedToUserId = Number(assignedTo);
     if (customerId) where.customerId = Number(customerId);
+    if (role === "admin" || role === "job_admin") {
+      // Managers can see everything, optionally filtered by contractor
+      if (assignedTo) where.assignedToUserId = Number(assignedTo);
+    } else {
+      // Contractors only ever see their own jobs — enforced here, not just client-side
+      where.assignedToUserId = userId;
+    }
 
     const jobs = await prisma.job.findMany({
       where,
@@ -33,9 +45,13 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/jobs
+// POST /api/jobs — scheduling a job is an admin/job_admin action
 export async function POST(request: Request) {
   try {
+    const { session, response } = await requireManager();
+    if (response) return response;
+    const createdBy = (session.user as any).id;
+
     const body = await parseBody<{
       customerId: number;
       fieldId?: number;
@@ -46,7 +62,6 @@ export async function POST(request: Request) {
       plannedDate?: string;
       estimatedQuantity?: number;
       unitType?: string;
-      createdBy?: number;
     }>(request);
 
     if (!body.customerId || !body.jobTypeId || !body.title) {
@@ -64,7 +79,7 @@ export async function POST(request: Request) {
         plannedDate: body.plannedDate ? new Date(body.plannedDate) : null,
         estimatedQuantity: body.estimatedQuantity,
         unitType: body.unitType,
-        createdBy: body.createdBy,
+        createdBy,
       },
       include: {
         customer: { select: { id: true, name: true } },

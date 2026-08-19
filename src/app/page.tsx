@@ -226,7 +226,7 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
 
   return (
     <div>
-      <PageHeader title="Dashboard" subtitle="Overview of your contracting business" />
+      <PageHeader title="Dashboard" subtitle="Overview" />
 
       <div className={`grid grid-cols-2 ${showFinance ? "lg:grid-cols-4" : ""} gap-4 mb-8`}>
         <div className="cursor-pointer" onClick={() => onNavigate?.("jobs", "active")}>
@@ -2365,7 +2365,7 @@ function Sidebar({ currentView, setView, session }: { currentView: ViewId; setVi
           <img src="/logo.png" alt="FieldFlow" className="w-10 h-10 rounded-xl object-cover" />
           <div>
             <div className="font-bold text-base" style={{ fontFamily: "Helvetica, Arial, sans-serif" }}>FieldFlow</div>
-            <div className="text-[10px] text-white/40">Farm Contracting</div>
+            <div className="text-xs text-white/40">Farm Contracting</div>
           </div>
         </div>
       </div>

@@ -69,6 +69,13 @@ const fmtDate = (d: string | null) => {
 
 const fmtCurrency = (n: number) => `£${Number(n).toFixed(2)}`;
 
+const roleLabel = (r: string) => ({ admin: "Admin", job_admin: "Job Admin", contractor: "Contractor" }[r] || r);
+const roleBadgeStyle = (r: string) => ({
+  admin: "bg-harvest-50 text-harvest-700",
+  job_admin: "bg-blue-50 text-blue-700",
+  contractor: "bg-field-50 text-field-700",
+}[r] || "bg-stone-100 text-stone-600");
+
 // ============================================================
 // SHARED UI COMPONENTS
 // ============================================================
@@ -96,7 +103,7 @@ function PageHeader({ title, subtitle, action }: { title: string; subtitle?: str
   return (
     <div className="flex justify-between items-start mb-6 gap-3">
       <div className="min-w-0 flex-1">
-        <h1 className="text-xl sm:text-2xl font-bold text-stone-900 truncate" style={{ fontFamily: "Georgia, serif" }}>{title}</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-stone-900 truncate">{title}</h1>
         {subtitle && <p className="text-sm text-stone-500 mt-0.5">{subtitle}</p>}
       </div>
       <div className="flex-shrink-0">{action}</div>
@@ -138,7 +145,7 @@ function Modal({ isOpen, onClose, title, children }: { isOpen: boolean; onClose:
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center" onClick={onClose}>
       <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto p-6 animate-[slideUp_0.3s_ease-out]" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-5">
-          <h2 className="text-lg font-bold" style={{ fontFamily: "Georgia, serif" }}>{title}</h2>
+          <h2 className="text-lg font-bold">{title}</h2>
           <button onClick={onClose} className="text-stone-400 hover:text-stone-600 transition p-1">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
           </button>
@@ -152,7 +159,7 @@ function Modal({ isOpen, onClose, title, children }: { isOpen: boolean; onClose:
 function StatCard({ value, label, color = "text-stone-900" }: { value: string | number; label: string; color?: string }) {
   return (
     <div className="bg-white border border-stone-200 rounded-xl p-5">
-      <div className={`text-2xl font-bold ${color}`} style={{ fontFamily: "Georgia, serif" }}>{value}</div>
+      <div className={`text-2xl font-bold ${color}`}>{value}</div>
       <div className="text-xs text-stone-500 mt-0.5">{label}</div>
     </div>
   );
@@ -206,7 +213,7 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
   const completed = jobs.filter((j: any) => j.status === "completed");
   const totalInvoiced = invoices.reduce((s: number, i: any) => s + Number(i.total), 0);
   const unpaid = invoices.filter((i: any) => i.status !== "paid");
-  const teamMembers = users.filter((u: any) => u.role === "contractor" || u.role === "job_admin");
+  const teamMembers = users;
 
   // Admins see the full financial picture; job admins and contractors don't need invoicing figures here
   const showFinance = isAdmin;
@@ -243,7 +250,7 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
       <div className={showTeam ? "grid lg:grid-cols-2 gap-6" : ""}>
         <Card className="p-5">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-sm font-bold text-stone-900" style={{ fontFamily: "Georgia, serif" }}>Recent Jobs</h3>
+            <h3 className="text-sm font-bold text-stone-900">Recent Jobs</h3>
             <button onClick={() => onNavigate?.("jobs")} className="text-xs font-semibold text-field-700 hover:underline">View all</button>
           </div>
           <div className="space-y-1">
@@ -262,7 +269,7 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
         {showTeam && (
           <Card className="p-5">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-stone-900" style={{ fontFamily: "Georgia, serif" }}>Team</h3>
+              <h3 className="text-sm font-bold text-stone-900">Team</h3>
               <button onClick={() => onNavigate?.("team")} className="text-xs font-semibold text-field-700 hover:underline">Manage</button>
             </div>
             <div className="space-y-1">
@@ -279,7 +286,7 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
                         <div className="text-xs text-stone-500">{userJobs.length} active jobs</div>
                       </div>
                     </div>
-                    <div className="text-xs text-stone-400 hidden sm:block flex-shrink-0">{user.phone}</div>
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${roleBadgeStyle(user.role)}`}>{roleLabel(user.role)}</span>
                   </div>
                 );
               })}
@@ -637,7 +644,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
 
       <Card className="p-5 mb-4">
         <div className="flex justify-between items-start gap-2 mb-4">
-          <h2 className="text-xl font-bold min-w-0 flex-1 truncate" style={{ fontFamily: "Georgia, serif" }}>{job.title}</h2>
+          <h2 className="text-xl font-bold min-w-0 flex-1 truncate">{job.title}</h2>
           <div className="flex gap-2 flex-shrink-0 items-center">
             <button onClick={openEdit} className="px-5 py-3 rounded-xl text-sm font-bold text-field-700 bg-field-50 hover:bg-field-100 transition">
               Edit
@@ -701,7 +708,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
         <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-3">Progress</div>
         <div className="flex gap-8 mb-3">
           <div>
-            <span className="text-2xl font-bold" style={{ fontFamily: "Georgia, serif" }}>{totalQty}</span>
+            <span className="text-2xl font-bold">{totalQty}</span>
             <span className="text-sm text-stone-500">{estQty ? ` / ${estQty}` : ""} {job.unitType || "units"} completed</span>
           </div>
         </div>
@@ -762,7 +769,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
             {/* Step 1: Machine */}
             {logStep === 0 && (
               <>
-                <h2 className="text-xl font-bold mb-5" style={{ fontFamily: "Georgia, serif" }}>Which machine?</h2>
+                <h2 className="text-xl font-bold mb-5">Which machine?</h2>
                 <div className="space-y-2.5 max-h-[55vh] overflow-y-auto">
                   <button
                     onClick={() => setLogForm(f => ({ ...f, machineId: "" }))}
@@ -789,7 +796,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
             {/* Step 2: Qty */}
             {logStep === 1 && (
               <>
-                <h2 className="text-xl font-bold mb-5" style={{ fontFamily: "Georgia, serif" }}>How much did you complete?</h2>
+                <h2 className="text-xl font-bold mb-5">How much did you complete?</h2>
                 <label className="block text-sm font-bold text-stone-600 mb-2">
                   Qty ({job.unitType || "units"}) <span className="text-red-500">*</span>
                 </label>
@@ -806,7 +813,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
             {/* Step 3: Notes */}
             {logStep === 2 && (
               <>
-                <h2 className="text-xl font-bold mb-5" style={{ fontFamily: "Georgia, serif" }}>Anything to note?</h2>
+                <h2 className="text-xl font-bold mb-5">Anything to note?</h2>
                 <label className="block text-sm font-bold text-stone-600 mb-2">Notes (optional)</label>
                 <textarea
                   className="w-full px-4 py-3 border-2 border-stone-300 rounded-2xl text-base bg-white focus:outline-none focus:border-field-500 transition"
@@ -822,7 +829,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
             {/* Step 4: Review & save */}
             {logStep === 3 && (
               <>
-                <h2 className="text-xl font-bold mb-5" style={{ fontFamily: "Georgia, serif" }}>Confirm & save</h2>
+                <h2 className="text-xl font-bold mb-5">Confirm & save</h2>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
                     <span className="text-sm text-stone-500">Machine</span>
@@ -1537,6 +1544,7 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
 // ============================================================
 function JobTypesView() {
   const { jobTypes, refresh, currentUser } = useApp();
+  const isAdmin = currentUser?.role === "admin";
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1600,7 +1608,7 @@ function JobTypesView() {
       <PageHeader
         title="Job Types"
         subtitle={`${jobTypes.length} types configured`}
-        action={<Btn onClick={openCreate}>+ Add Type</Btn>}
+        action={isAdmin ? <Btn onClick={openCreate}>+ Add Type</Btn> : undefined}
       />
 
       <div className="space-y-2.5">
@@ -1616,10 +1624,12 @@ function JobTypesView() {
                 </div>
                 {jt.description && <div className="text-xs text-stone-400 mt-1">{jt.description}</div>}
               </div>
-              <div className="flex gap-1 flex-shrink-0">
-                <button onClick={() => openEdit(jt)} className="px-2.5 py-1.5 text-xs font-medium text-field-700 bg-field-50 rounded-lg hover:bg-field-100 transition">Edit</button>
-                <button onClick={() => handleDelete(jt.id, jt.name)} className="px-2.5 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition">Delete</button>
-              </div>
+              {isAdmin && (
+                <div className="flex gap-1 flex-shrink-0">
+                  <button onClick={() => openEdit(jt)} className="px-2.5 py-1.5 text-xs font-medium text-field-700 bg-field-50 rounded-lg hover:bg-field-100 transition">Edit</button>
+                  <button onClick={() => handleDelete(jt.id, jt.name)} className="px-2.5 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition">Delete</button>
+                </div>
+              )}
             </div>
           </Card>
         ))}
@@ -1789,13 +1799,6 @@ function TeamView() {
   const [editForm, setEditForm] = useState({ name: "", username: "", email: "", phone: "", role: "", password: "", active: true });
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState("");
-
-  const roleLabel = (r: string) => ({ admin: "Admin", job_admin: "Job Admin", contractor: "Contractor" }[r] || r);
-  const roleBadgeStyle = (r: string) => ({
-    admin: "bg-harvest-50 text-harvest-700",
-    job_admin: "bg-blue-50 text-blue-700",
-    contractor: "bg-field-50 text-field-700",
-  }[r] || "bg-stone-100 text-stone-600");
 
   const admins = users.filter((u: any) => u.role === "admin");
   const jobAdmins = users.filter((u: any) => u.role === "job_admin");
@@ -2516,7 +2519,7 @@ export default function FieldFlowApp() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <img src="/logo.png" alt="FieldFlow" className="w-16 h-16 rounded-2xl object-cover mx-auto mb-3" />
-          <div className="text-lg font-bold text-stone-700 mb-2" style={{ fontFamily: "Georgia, serif" }}>FieldFlow</div>
+          <div className="text-lg font-bold text-stone-700 mb-2">FieldFlow</div>
           <div className="w-6 h-6 border-2 border-field-200 border-t-field-600 rounded-full animate-spin mx-auto" />
         </div>
       </div>
@@ -2556,7 +2559,7 @@ export default function FieldFlowApp() {
         <header className="sticky top-0 z-40 bg-white border-b border-stone-200 px-4 py-3 flex justify-between items-center lg:hidden">
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="FieldFlow" className="w-7 h-7 rounded-lg object-cover" />
-            <span className="font-bold" style={{ fontFamily: "Georgia, serif" }}>FieldFlow</span>
+            <span className="font-bold">FieldFlow</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-stone-500">{session?.user?.name?.split(" ")[0]}</span>

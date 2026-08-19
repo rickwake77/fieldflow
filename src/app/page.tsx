@@ -166,44 +166,88 @@ function Spinner() {
   );
 }
 
+// Large Back/Next button row for step-by-step mobile flows (e.g. Log Work wizard)
+function WizardNav({ onBack, onNext, nextLabel = "Next", nextDisabled, backLabel = "Back", saving }: {
+  onBack?: () => void; onNext: () => void; nextLabel?: string; nextDisabled?: boolean; backLabel?: string; saving?: boolean;
+}) {
+  return (
+    <div className="flex gap-3 mt-6">
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="flex-1 py-4 rounded-2xl text-base font-bold text-stone-500 bg-stone-100 hover:bg-stone-200 transition"
+        >
+          {backLabel}
+        </button>
+      )}
+      <button
+        onClick={onNext}
+        disabled={nextDisabled}
+        className={`${onBack ? "flex-[2]" : "w-full"} py-4 rounded-2xl text-base font-bold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm`}
+      >
+        {saving ? "Saving..." : nextLabel}
+      </button>
+    </div>
+  );
+}
+
 // ============================================================
 // DASHBOARD
 // ============================================================
+const jobStatusOrder: Record<string, number> = { in_progress: 0, scheduled: 1, completed: 2 };
+
 function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => void; onNavigate?: (view: string, filter?: string) => void }) {
-  const { jobs, invoices, users, customers } = useApp();
+  const { jobs, invoices, users, customers, currentUser } = useApp();
+  const role = currentUser?.role;
+  const isAdmin = role === "admin";
+  const isContractor = role === "contractor";
+
   const active = jobs.filter((j: any) => j.status !== "completed" && j.status !== "cancelled");
   const completed = jobs.filter((j: any) => j.status === "completed");
   const totalInvoiced = invoices.reduce((s: number, i: any) => s + Number(i.total), 0);
   const unpaid = invoices.filter((i: any) => i.status !== "paid");
   const teamMembers = users.filter((u: any) => u.role === "contractor" || u.role === "job_admin");
 
+  // Admins see the full financial picture; job admins and contractors don't need invoicing figures here
+  const showFinance = isAdmin;
+  // Contractors only need their own jobs — the Team card isn't relevant to them
+  const showTeam = !isContractor;
+  // Contractors care most about what's in progress right now, then what's coming up, then what's done
+  const recentJobs = isContractor
+    ? [...jobs].sort((a: any, b: any) => (jobStatusOrder[a.status] ?? 3) - (jobStatusOrder[b.status] ?? 3)).slice(0, 6)
+    : jobs.slice(0, 6);
+
   return (
     <div>
       <PageHeader title="Dashboard" subtitle="Overview of your contracting business" />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className={`grid grid-cols-2 ${showFinance ? "lg:grid-cols-4" : ""} gap-4 mb-8`}>
         <div className="cursor-pointer" onClick={() => onNavigate?.("jobs", "active")}>
           <StatCard value={active.length} label="Active Jobs" color="text-field-700" />
         </div>
         <div className="cursor-pointer" onClick={() => onNavigate?.("jobs", "completed")}>
           <StatCard value={completed.length} label="Completed Jobs" color="text-emerald-600" />
         </div>
-        <div className="cursor-pointer" onClick={() => onNavigate?.("invoices")}>
-          <StatCard value={fmtCurrency(totalInvoiced)} label="Invoiced" color="text-harvest-600" />
-        </div>
-        <div className="cursor-pointer" onClick={() => onNavigate?.("invoices", "unpaid")}>
-          <StatCard value={unpaid.length} label="Unpaid Invoices" color="text-red-600" />
-        </div>
+        {showFinance && (
+          <>
+            <div className="cursor-pointer" onClick={() => onNavigate?.("invoices")}>
+              <StatCard value={fmtCurrency(totalInvoiced)} label="Invoiced" color="text-harvest-600" />
+            </div>
+            <div className="cursor-pointer" onClick={() => onNavigate?.("invoices", "unpaid")}>
+              <StatCard value={unpaid.length} label="Unpaid Invoices" color="text-red-600" />
+            </div>
+          </>
+        )}
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className={showTeam ? "grid lg:grid-cols-2 gap-6" : ""}>
         <Card className="p-5">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-sm font-bold text-stone-900" style={{ fontFamily: "Georgia, serif" }}>Recent Jobs</h3>
             <button onClick={() => onNavigate?.("jobs")} className="text-xs font-semibold text-field-700 hover:underline">View all</button>
           </div>
           <div className="space-y-1">
-            {jobs.slice(0, 6).map((job: any) => (
+            {recentJobs.map((job: any) => (
               <div key={job.id} onClick={() => onSelectJob?.(job)} className="flex justify-between items-center gap-3 py-2.5 border-b border-stone-100 last:border-0 cursor-pointer hover:bg-stone-50 -mx-2 px-2 rounded-lg transition">
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold text-sm truncate">{job.title}</div>
@@ -215,31 +259,33 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
           </div>
         </Card>
 
-        <Card className="p-5">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-sm font-bold text-stone-900" style={{ fontFamily: "Georgia, serif" }}>Team</h3>
-            <button onClick={() => onNavigate?.("team")} className="text-xs font-semibold text-field-700 hover:underline">Manage</button>
-          </div>
-          <div className="space-y-1">
-            {teamMembers.map((user: any) => {
-              const userJobs = jobs.filter((j: any) => j.assignedTo?.id === user.id && j.status !== "completed");
-              return (
-                <div key={user.id} className="flex justify-between items-center gap-3 py-2.5 border-b border-stone-100 last:border-0">
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <div className="w-9 h-9 rounded-full bg-field-100 flex items-center justify-center text-field-700 font-bold text-xs flex-shrink-0">
-                      {user.name.split(" ").map((n: string) => n[0]).join("")}
+        {showTeam && (
+          <Card className="p-5">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-bold text-stone-900" style={{ fontFamily: "Georgia, serif" }}>Team</h3>
+              <button onClick={() => onNavigate?.("team")} className="text-xs font-semibold text-field-700 hover:underline">Manage</button>
+            </div>
+            <div className="space-y-1">
+              {teamMembers.map((user: any) => {
+                const userJobs = jobs.filter((j: any) => j.assignedTo?.id === user.id && j.status !== "completed");
+                return (
+                  <div key={user.id} className="flex justify-between items-center gap-3 py-2.5 border-b border-stone-100 last:border-0">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="w-9 h-9 rounded-full bg-field-100 flex items-center justify-center text-field-700 font-bold text-xs flex-shrink-0">
+                        {user.name.split(" ").map((n: string) => n[0]).join("")}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm truncate">{user.name}</div>
+                        <div className="text-xs text-stone-500">{userJobs.length} active jobs</div>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <div className="font-semibold text-sm truncate">{user.name}</div>
-                      <div className="text-xs text-stone-500">{userJobs.length} active jobs</div>
-                    </div>
+                    <div className="text-xs text-stone-400 hidden sm:block flex-shrink-0">{user.phone}</div>
                   </div>
-                  <div className="text-xs text-stone-400 hidden sm:block flex-shrink-0">{user.phone}</div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
+                );
+              })}
+            </div>
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -257,10 +303,25 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
     customerId: "", fieldId: "", jobTypeId: "", assignedToUserId: "",
     title: "", description: "", plannedDate: "", estimatedQuantity: "", unitType: "",
   });
+  const [addingField, setAddingField] = useState(false);
+  const [savingField, setSavingField] = useState(false);
+  const [newField, setNewField] = useState({ fieldName: "", hectares: "" });
+  // Title auto-fills from Job Type / Customer / Field until the user types their own
+  const [titleAuto, setTitleAuto] = useState(true);
 
   const filtered = filter === "all" ? jobs : (filter === "active" ? jobs.filter((j: any) => j.status === "scheduled" || j.status === "in_progress") : jobs.filter((j: any) => j.status === filter));
   const assignableUsers = users.filter((u: any) => u.active);
   const customerFields = form.customerId ? fields.filter((f: any) => f.customer?.id === Number(form.customerId)) : [];
+
+  useEffect(() => {
+    if (!titleAuto) return;
+    const jt = jobTypes.find((j: any) => j.id === Number(form.jobTypeId));
+    const cust = customers.find((c: any) => c.id === Number(form.customerId));
+    if (!jt || !cust) return;
+    const fld = form.fieldId ? fields.find((f: any) => f.id === Number(form.fieldId)) : null;
+    const generated = `${jt.name} - ${cust.name}${fld ? ` - ${fld.fieldName}` : ""}`;
+    setForm(f => (f.title === generated ? f : { ...f, title: generated }));
+  }, [form.jobTypeId, form.customerId, form.fieldId, jobTypes, customers, fields, titleAuto]);
 
   // Auto-set unit type when job type selected
   const handleJobTypeChange = (jobTypeId: string) => {
@@ -285,10 +346,32 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
       await refresh();
       setShowCreate(false);
       setForm({ customerId: "", fieldId: "", jobTypeId: "", assignedToUserId: "", title: "", description: "", plannedDate: "", estimatedQuantity: "", unitType: "" });
+      setAddingField(false);
+      setNewField({ fieldName: "", hectares: "" });
+      setTitleAuto(true);
     } catch (err: any) {
       alert("Error creating job: " + err.message);
     }
     setCreating(false);
+  };
+
+  // Adds a field to the selected customer on the fly, so the database builds up as jobs are created
+  const handleAddField = async () => {
+    setSavingField(true);
+    try {
+      const created = await api.createField({
+        customerId: Number(form.customerId),
+        fieldName: newField.fieldName,
+        hectares: Number(newField.hectares) || 0,
+      });
+      await refresh();
+      setForm(f => ({ ...f, fieldId: String(created.id) }));
+      setAddingField(false);
+      setNewField({ fieldName: "", hectares: "" });
+    } catch (err: any) {
+      alert("Error adding field: " + err.message);
+    }
+    setSavingField(false);
   };
 
   return (
@@ -299,10 +382,10 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
         action={<Btn onClick={() => setShowCreate(true)}>+ New Job</Btn>}
       />
 
-      <div className="flex gap-1.5 mb-5 flex-wrap">
+      <div className="flex gap-2 mb-5 flex-wrap">
         {["all", "active", "scheduled", "in_progress", "completed"].map(f => (
           <button key={f} onClick={() => setFilter(f)}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${filter === f ? "bg-field-100 text-field-700" : "text-stone-500 hover:bg-stone-100"}`}>
+            className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition ${filter === f ? "bg-field-100 text-field-700" : "text-stone-500 hover:bg-stone-100"}`}>
             {f === "all" ? "All" : f === "active" ? "Active" : statusLabel(f)}
           </button>
         ))}
@@ -356,7 +439,11 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
       {/* Create Job Modal */}
       <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="Create New Job">
         <FormField label="Customer" required>
-          <select className={inputClass} value={form.customerId} onChange={e => setForm(f => ({ ...f, customerId: e.target.value, fieldId: "" }))}>
+          <select className={inputClass} value={form.customerId} onChange={e => {
+            setForm(f => ({ ...f, customerId: e.target.value, fieldId: "" }));
+            setAddingField(false);
+            setNewField({ fieldName: "", hectares: "" });
+          }}>
             <option value="">Select customer...</option>
             {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
@@ -368,10 +455,34 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
           </select>
         </FormField>
         <FormField label="Field">
-          <select className={inputClass} value={form.fieldId} onChange={e => setForm(f => ({ ...f, fieldId: e.target.value }))} disabled={!form.customerId}>
-            <option value="">{form.customerId ? "None / not applicable" : "Select customer first"}</option>
-            {customerFields.map((f: any) => <option key={f.id} value={f.id}>{f.fieldName} ({Number(f.hectares)} ac)</option>)}
-          </select>
+          {addingField ? (
+            <div className="border border-stone-200 rounded-lg p-3 bg-stone-50 space-y-2">
+              <input className={inputClass} placeholder="Field name (e.g. Top Field)" autoFocus value={newField.fieldName} onChange={e => setNewField(f => ({ ...f, fieldName: e.target.value }))} />
+              <input className={inputClass} type="number" step="0.1" placeholder="Acres" value={newField.hectares} onChange={e => setNewField(f => ({ ...f, hectares: e.target.value }))} />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => { setAddingField(false); setNewField({ fieldName: "", hectares: "" }); }}
+                  className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold text-stone-500 bg-white border border-stone-200 hover:bg-stone-100 transition">
+                  Cancel
+                </button>
+                <button type="button" onClick={handleAddField} disabled={savingField || !newField.fieldName}
+                  className="flex-[2] px-3 py-2 rounded-lg text-xs font-semibold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                  {savingField ? "Saving..." : "Save Field"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <select className={inputClass} value={form.fieldId} onChange={e => setForm(f => ({ ...f, fieldId: e.target.value }))} disabled={!form.customerId}>
+                <option value="">{form.customerId ? "None / not applicable" : "Select customer first"}</option>
+                {customerFields.map((f: any) => <option key={f.id} value={f.id}>{f.fieldName} ({Number(f.hectares)} ac)</option>)}
+              </select>
+              {form.customerId && (
+                <button type="button" onClick={() => setAddingField(true)} className="mt-1.5 text-xs font-semibold text-field-700 hover:underline">
+                  + Add a new field for this customer
+                </button>
+              )}
+            </>
+          )}
         </FormField>
         <FormField label="Assign To">
           <select className={inputClass} value={form.assignedToUserId} onChange={e => setForm(f => ({ ...f, assignedToUserId: e.target.value }))}>
@@ -380,7 +491,10 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
           </select>
         </FormField>
         <FormField label="Title" required>
-          <input className={inputClass} placeholder="e.g. Plough Top Field" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
+          <input className={inputClass} placeholder="e.g. Plough Top Field" value={form.title} onChange={e => {
+            setForm(f => ({ ...f, title: e.target.value }));
+            setTitleAuto(e.target.value.trim() === "");
+          }} />
         </FormField>
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Planned Date">
@@ -412,6 +526,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showLogForm, setShowLogForm] = useState(false);
+  const [logStep, setLogStep] = useState(0);
   const [logSaving, setLogSaving] = useState(false);
   const [logForm, setLogForm] = useState({ machineId: "", quantityCompleted: "", notes: "" });
   const [statusUpdating, setStatusUpdating] = useState(false);
@@ -470,6 +585,12 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
     setEditSaving(false);
   };
 
+  const closeLogForm = () => {
+    setShowLogForm(false);
+    setLogStep(0);
+    setLogForm({ machineId: "", quantityCompleted: "", notes: "" });
+  };
+
   const handleLogWork = async () => {
     setLogSaving(true);
     try {
@@ -483,13 +604,11 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
       });
       if ((result as any)?.queued) {
         // Queued for later sync — close form and show confirmation
-        setShowLogForm(false);
-        setLogForm({ machineId: "", quantityCompleted: "", notes: "" });
+        closeLogForm();
       } else {
         await loadJob();
         await refresh();
-        setShowLogForm(false);
-        setLogForm({ machineId: "", quantityCompleted: "", notes: "" });
+        closeLogForm();
       }
     } catch (err: any) {
       alert("Error logging work: " + err.message);
@@ -519,8 +638,10 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
       <Card className="p-5 mb-4">
         <div className="flex justify-between items-start gap-2 mb-4">
           <h2 className="text-xl font-bold min-w-0 flex-1 truncate" style={{ fontFamily: "Georgia, serif" }}>{job.title}</h2>
-          <div className="flex gap-2 flex-shrink-0">
-            <Btn variant="secondary" onClick={openEdit}>Edit</Btn>
+          <div className="flex gap-2 flex-shrink-0 items-center">
+            <button onClick={openEdit} className="px-5 py-3 rounded-xl text-sm font-bold text-field-700 bg-field-50 hover:bg-field-100 transition">
+              Edit
+            </button>
             <StatusBadge status={job.status} />
           </div>
         </div>
@@ -534,29 +655,44 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
         </div>
         {job.description && <p className="mt-3 text-sm text-stone-500 italic">{job.description}</p>}
 
-        {/* Status actions */}
-        <div className="flex flex-wrap gap-2 mt-5 pt-4 border-t border-stone-100">
+        {/* Status actions — large, stacked, full-width for easy tapping in the field */}
+        <div className="flex flex-col gap-3 mt-5 pt-4 border-t border-stone-100">
           {job.status === "scheduled" && (
-            <Btn variant="accent" onClick={() => handleStatusChange("in_progress")} disabled={statusUpdating}>
+            <button
+              onClick={() => handleStatusChange("in_progress")}
+              disabled={statusUpdating}
+              className="w-full py-4 rounded-2xl text-base font-bold text-white bg-harvest-500 hover:bg-harvest-600 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm"
+            >
               Mark In Progress
-            </Btn>
+            </button>
           )}
           {job.status === "in_progress" && (
-            <Btn onClick={() => handleStatusChange("completed")} disabled={statusUpdating}>
+            <button
+              onClick={() => handleStatusChange("completed")}
+              disabled={statusUpdating}
+              className="w-full py-4 rounded-2xl text-base font-bold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm"
+            >
               Mark Completed
-            </Btn>
+            </button>
           )}
           {job.status === "completed" && (
-            <Btn variant="secondary" onClick={() => handleStatusChange("in_progress")} disabled={statusUpdating}>
+            <button
+              onClick={() => handleStatusChange("in_progress")}
+              disabled={statusUpdating}
+              className="w-full py-4 rounded-2xl text-base font-bold text-field-700 bg-field-50 hover:bg-field-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
               Reopen Job
-            </Btn>
+            </button>
           )}
-          <Btn variant="danger" onClick={async () => {
-            if (!confirm(`Delete "${job.title}"? This will also delete all work logs for this job.`)) return;
-            try { await api.deleteJob(job.id); await refresh(); onBack(); } catch (err: any) { alert("Error: " + err.message); }
-          }}>
+          <button
+            onClick={async () => {
+              if (!confirm(`Delete "${job.title}"? This will also delete all work logs for this job.`)) return;
+              try { await api.deleteJob(job.id); await refresh(); onBack(); } catch (err: any) { alert("Error: " + err.message); }
+            }}
+            className="w-full py-4 rounded-2xl text-base font-bold text-red-700 bg-red-50 hover:bg-red-600 hover:text-white transition"
+          >
             Delete Job
-          </Btn>
+          </button>
         </div>
       </Card>
 
@@ -581,7 +717,12 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
 
       {/* Log Work button */}
       {job.status !== "completed" && job.status !== "cancelled" && (
-        <Btn className="w-full mb-5 py-3" onClick={() => setShowLogForm(true)}>+ Log Work</Btn>
+        <button
+          onClick={() => setShowLogForm(true)}
+          className="w-full mb-5 py-5 rounded-2xl text-lg font-bold text-white bg-field-700 hover:bg-field-800 shadow-sm transition"
+        >
+          + Log Work
+        </button>
       )}
 
       {/* Work Logs */}
@@ -606,74 +747,109 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
         </div>
       )}
 
-      {/* Log Work Modal — full-screen on mobile, standard on desktop */}
+      {/* Log Work Wizard — one big decision per screen, full-screen on mobile, standard on desktop */}
       {showLogForm && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center" onClick={() => setShowLogForm(false)}>
-          <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl overflow-y-auto sm:max-h-[90vh] p-6 sm:p-6 animate-[slideUp_0.3s_ease-out]" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center" onClick={closeLogForm}>
+          <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl overflow-y-auto sm:max-h-[90vh] p-6 animate-[slideUp_0.3s_ease-out]" onClick={e => e.stopPropagation()}>
             {/* Header */}
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold" style={{ fontFamily: "Georgia, serif" }}>Log Work</h2>
-              <button onClick={() => setShowLogForm(false)} className="text-stone-400 hover:text-stone-600 p-2">
+            <div className="flex justify-between items-center mb-2">
+              <div className="text-xs font-bold uppercase tracking-wider text-stone-400">Step {logStep + 1} of 4</div>
+              <button onClick={closeLogForm} className="text-stone-400 hover:text-stone-600 p-2 -mr-2">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
               </button>
             </div>
 
-            {/* Machine */}
-            <div className="mb-5">
-              <label className="block text-sm font-bold text-stone-600 mb-2">Machine</label>
-              <select
-                className="w-full px-4 py-4 border-2 border-stone-300 rounded-xl text-base bg-white focus:outline-none focus:border-field-500 transition"
-                value={logForm.machineId}
-                onChange={e => setLogForm(f => ({ ...f, machineId: e.target.value }))}
-              >
-                <option value="">Select machine...</option>
-                {machines.filter((m: any) => m.active).map((m: any) => (
-                  <option key={m.id} value={m.id}>{m.name} ({m.registration})</option>
-                ))}
-              </select>
-            </div>
+            {/* Step 1: Machine */}
+            {logStep === 0 && (
+              <>
+                <h2 className="text-xl font-bold mb-5" style={{ fontFamily: "Georgia, serif" }}>Which machine?</h2>
+                <div className="space-y-2.5 max-h-[55vh] overflow-y-auto">
+                  <button
+                    onClick={() => setLogForm(f => ({ ...f, machineId: "" }))}
+                    className={`w-full text-left px-4 py-4 rounded-2xl border-2 transition ${logForm.machineId === "" ? "border-field-600 bg-field-50" : "border-stone-200 bg-white hover:border-stone-300"}`}
+                  >
+                    <div className="font-bold text-base">No machine</div>
+                    <div className="text-xs text-stone-500">Not applicable for this job</div>
+                  </button>
+                  {machines.filter((m: any) => m.active).map((m: any) => (
+                    <button
+                      key={m.id}
+                      onClick={() => setLogForm(f => ({ ...f, machineId: String(m.id) }))}
+                      className={`w-full text-left px-4 py-4 rounded-2xl border-2 transition ${logForm.machineId === String(m.id) ? "border-field-600 bg-field-50" : "border-stone-200 bg-white hover:border-stone-300"}`}
+                    >
+                      <div className="font-bold text-base">{m.name}</div>
+                      <div className="text-xs text-stone-500">{m.registration}</div>
+                    </button>
+                  ))}
+                </div>
+                <WizardNav onNext={() => setLogStep(1)} />
+              </>
+            )}
 
-            {/* Qty */}
-            <div className="mb-5">
-              <label className="block text-sm font-bold text-stone-600 mb-2">
-                Qty ({job.unitType || "units"}) <span className="text-red-500">*</span>
-              </label>
-              <input
-                className="w-full px-4 py-4 border-2 border-stone-300 rounded-xl text-2xl font-bold text-center bg-white focus:outline-none focus:border-field-500 transition"
-                type="number" step="0.1" inputMode="decimal" placeholder="0"
-                value={logForm.quantityCompleted}
-                onChange={e => setLogForm(f => ({ ...f, quantityCompleted: e.target.value }))}
-              />
-            </div>
+            {/* Step 2: Qty */}
+            {logStep === 1 && (
+              <>
+                <h2 className="text-xl font-bold mb-5" style={{ fontFamily: "Georgia, serif" }}>How much did you complete?</h2>
+                <label className="block text-sm font-bold text-stone-600 mb-2">
+                  Qty ({job.unitType || "units"}) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  className="w-full px-4 py-5 border-2 border-stone-300 rounded-2xl text-4xl font-bold text-center bg-white focus:outline-none focus:border-field-500 transition"
+                  type="number" step="0.1" inputMode="decimal" placeholder="0" autoFocus
+                  value={logForm.quantityCompleted}
+                  onChange={e => setLogForm(f => ({ ...f, quantityCompleted: e.target.value }))}
+                />
+                <WizardNav onBack={() => setLogStep(0)} onNext={() => setLogStep(2)} nextDisabled={!logForm.quantityCompleted} />
+              </>
+            )}
 
-            {/* Notes */}
-            <div className="mb-6">
-              <label className="block text-sm font-bold text-stone-600 mb-2">Notes</label>
-              <textarea
-                className="w-full px-4 py-3 border-2 border-stone-300 rounded-xl text-base bg-white focus:outline-none focus:border-field-500 transition"
-                placeholder="Conditions, issues, anything to note..."
-                rows={3}
-                value={logForm.notes}
-                onChange={e => setLogForm(f => ({ ...f, notes: e.target.value }))}
-              />
-            </div>
+            {/* Step 3: Notes */}
+            {logStep === 2 && (
+              <>
+                <h2 className="text-xl font-bold mb-5" style={{ fontFamily: "Georgia, serif" }}>Anything to note?</h2>
+                <label className="block text-sm font-bold text-stone-600 mb-2">Notes (optional)</label>
+                <textarea
+                  className="w-full px-4 py-3 border-2 border-stone-300 rounded-2xl text-base bg-white focus:outline-none focus:border-field-500 transition"
+                  placeholder="Conditions, issues, anything to note..."
+                  rows={5}
+                  value={logForm.notes}
+                  onChange={e => setLogForm(f => ({ ...f, notes: e.target.value }))}
+                />
+                <WizardNav onBack={() => setLogStep(1)} onNext={() => setLogStep(3)} />
+              </>
+            )}
 
-            {/* Buttons */}
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowLogForm(false)}
-                className="flex-1 py-4 rounded-xl text-base font-semibold text-stone-500 bg-stone-100 hover:bg-stone-200 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleLogWork}
-                disabled={logSaving || !logForm.quantityCompleted}
-                className="flex-[2] py-4 rounded-xl text-base font-semibold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm"
-              >
-                {logSaving ? "Saving..." : "Save Log"}
-              </button>
-            </div>
+            {/* Step 4: Review & save */}
+            {logStep === 3 && (
+              <>
+                <h2 className="text-xl font-bold mb-5" style={{ fontFamily: "Georgia, serif" }}>Confirm & save</h2>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
+                    <span className="text-sm text-stone-500">Machine</span>
+                    <span className="font-semibold text-sm">
+                      {machines.find((m: any) => String(m.id) === logForm.machineId)?.name || "No machine"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
+                    <span className="text-sm text-stone-500">Qty</span>
+                    <span className="font-semibold text-sm">{logForm.quantityCompleted || 0} {job.unitType || "units"}</span>
+                  </div>
+                  {logForm.notes && (
+                    <div className="px-4 py-3.5 rounded-xl bg-stone-50">
+                      <div className="text-sm text-stone-500 mb-1">Notes</div>
+                      <div className="text-sm italic">{logForm.notes}</div>
+                    </div>
+                  )}
+                </div>
+                <WizardNav
+                  onBack={() => setLogStep(2)}
+                  onNext={handleLogWork}
+                  nextLabel="Save Log"
+                  nextDisabled={logSaving || !logForm.quantityCompleted}
+                  saving={logSaving}
+                />
+              </>
+            )}
           </div>
         </div>
       )}
@@ -2221,16 +2397,20 @@ function Sidebar({ currentView, setView, session }: { currentView: ViewId; setVi
   );
 }
 
-function MobileNav({ currentView, setView }: { currentView: ViewId; setView: (v: ViewId) => void }) {
-  const tabs: { id: ViewId; label: string; icon: string }[] = [
-    { id: "dashboard", label: "Home", icon: "M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" },
-    { id: "jobs", label: "Jobs", icon: "M2 7h20v14H2zM16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16" },
-    { id: "customers", label: "Customers", icon: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8" },
-    { id: "invoices", label: "Invoices", icon: "M1 4h22v16H1zM1 10h22" },
+function MobileNav({ currentView, setView, session }: { currentView: ViewId; setView: (v: ViewId) => void; session: any }) {
+  const role = session?.user?.role;
+  const isAdmin = role === "admin";
+  const canManageJobs = role === "admin" || role === "job_admin";
+  const tabs: { id: ViewId; label: string; icon: string; show?: boolean }[] = [
+    { id: "dashboard", label: "Home", icon: "M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z", show: true },
+    { id: "jobs", label: "Jobs", icon: "M2 7h20v14H2zM16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16", show: true },
+    { id: "customers", label: "Customers", icon: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8", show: canManageJobs },
+    { id: "invoices", label: "Invoices", icon: "M1 4h22v16H1zM1 10h22", show: isAdmin },
   ];
+  const visibleTabs = tabs.filter(t => t.show);
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 flex lg:hidden z-50" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-      {tabs.map(tab => (
+      {visibleTabs.map(tab => (
         <button key={tab.id} onClick={() => setView(tab.id)}
           className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition ${currentView === tab.id ? "text-field-700" : "text-stone-400"}`}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
@@ -2353,11 +2533,11 @@ export default function FieldFlowApp() {
       case "dashboard": return <Dashboard {...dashboardProps} />;
       case "jobs": return <JobsView onSelectJob={handleSelectJob} initialFilter={viewFilter} />;
       case "job-detail": return selectedJobId ? <JobDetail jobId={selectedJobId} onBack={handleBackToJobs} /> : <JobsView onSelectJob={handleSelectJob} />;
-      case "customers": return <CustomersView />;
+      case "customers": return canManageJobs ? <CustomersView /> : <Dashboard {...dashboardProps} />;
       case "invoices": return isAdmin ? <InvoicesView initialFilter={viewFilter} /> : <Dashboard {...dashboardProps} />;
       case "work-orders": return canManageJobs ? <WorkOrdersView /> : <Dashboard {...dashboardProps} />;
-      case "job-types": return <JobTypesView />;
-      case "machines": return <MachinesView />;
+      case "job-types": return canManageJobs ? <JobTypesView /> : <Dashboard {...dashboardProps} />;
+      case "machines": return canManageJobs ? <MachinesView /> : <Dashboard {...dashboardProps} />;
       case "team": return isAdmin ? <TeamView /> : <Dashboard {...dashboardProps} />;
       default: return <Dashboard {...dashboardProps} />;
     }
@@ -2367,7 +2547,7 @@ export default function FieldFlowApp() {
     <AppContext.Provider value={{ users, customers, fields, jobs, jobTypes, machines, invoices, jobGroups, currentUser, loading, refresh: loadAll }}>
       <div className="overflow-x-hidden w-full max-w-[100vw]">
         <Sidebar currentView={currentView} setView={handleSetView} session={session} />
-        <MobileNav currentView={currentView} setView={handleSetView} />
+        <MobileNav currentView={currentView} setView={handleSetView} session={session} />
 
         {/* Offline status & sync queue */}
         <OfflineBar onSynced={loadAll} />

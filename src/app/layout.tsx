@@ -1,23 +1,29 @@
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "FieldFlow — Farm Contracting Management",
   description: "Manage jobs, logging, and invoicing for agricultural contracting",
   manifest: "/manifest.json",
-  themeColor: "#245a1e",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "FieldFlow",
   },
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
-    viewportFit: "cover",
-  },
+};
+
+// Next.js 14 dropped viewport/themeColor support inside `metadata` — left in
+// there, they're silently ignored and the page never gets a viewport meta
+// tag at all, which is exactly what caused Safari to render desktop-width
+// and need a pinch-zoom to fix on first load.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#245a1e",
 };
 
 export default function RootLayout({

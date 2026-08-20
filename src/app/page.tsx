@@ -264,6 +264,7 @@ function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean;
   const [createMode, setCreateMode] = useState<"single" | "package">("single");
   const [wizardStep, setWizardStep] = useState(0);
   const [customerSearch, setCustomerSearch] = useState("");
+  const [jobTypeSearch, setJobTypeSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [packageSaving, setPackageSaving] = useState(false);
 
@@ -290,6 +291,7 @@ function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean;
     setCreateMode("single");
     setWizardStep(skipModeSelect ? 1 : 0);
     setCustomerSearch("");
+    setJobTypeSearch("");
     setForm(blankForm());
     setTitleAuto(true);
     setAddingField(false);
@@ -409,6 +411,9 @@ function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean;
   const filteredCustomers = customerSearch.trim()
     ? customers.filter((c: any) => c.name.toLowerCase().includes(customerSearch.trim().toLowerCase()))
     : customers;
+  const filteredJobTypes = jobTypeSearch.trim()
+    ? jobTypes.filter((jt: any) => jt.name.toLowerCase().includes(jobTypeSearch.trim().toLowerCase()))
+    : jobTypes;
   const customerFields = form.customerId ? fields.filter((f: any) => f.customer?.id === Number(form.customerId)) : [];
   const packageCustomerFields = packageForm.customerId ? fields.filter((f: any) => f.customer?.id === Number(packageForm.customerId)) : [];
   const selectedCustomer = customers.find((c: any) => String(c.id) === form.customerId);
@@ -470,14 +475,17 @@ function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean;
             />
 
             <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2 mt-5">Job Type</div>
+            {jobTypes.length > 6 && (
+              <input className={`${inputClass} mb-2`} placeholder="Search job types..." value={jobTypeSearch} onChange={e => setJobTypeSearch(e.target.value)} />
+            )}
             <WizardCardList
               className="space-y-2 max-h-[24vh] overflow-y-auto"
-              items={jobTypes}
+              items={filteredJobTypes}
               isSelected={jt => String(jt.id) === form.jobTypeId}
               onToggle={jt => handleJobTypeChange(String(jt.id))}
               renderMain={jt => jt.name}
               renderSub={jt => `${jt.billingUnit} · £${Number(jt.defaultRate)}`}
-              emptyText="No job types set up yet"
+              emptyText="No job types match"
             />
 
             <WizardNav onBack={() => setWizardStep(0)} onNext={() => setWizardStep(2)} nextDisabled={!form.customerId || !form.jobTypeId} />

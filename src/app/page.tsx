@@ -44,6 +44,7 @@ const statusColors: Record<string, string> = {
   completed: "bg-emerald-50 text-emerald-700 border-emerald-200",
   cancelled: "bg-stone-100 text-stone-500 border-stone-200",
   draft: "bg-stone-100 text-stone-600 border-stone-200",
+  approved: "bg-indigo-50 text-indigo-700 border-indigo-200",
   sent: "bg-blue-50 text-blue-700 border-blue-200",
   paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
   overdue: "bg-red-50 text-red-700 border-red-200",
@@ -53,6 +54,7 @@ const statusDotColors: Record<string, string> = {
   scheduled: "bg-blue-500",
   in_progress: "bg-amber-500 animate-pulse",
   completed: "bg-emerald-500",
+  approved: "bg-indigo-500",
   sent: "bg-blue-500",
   paid: "bg-emerald-500",
   overdue: "bg-red-500",
@@ -60,7 +62,7 @@ const statusDotColors: Record<string, string> = {
 };
 
 const statusLabel = (s: string) =>
-  ({ scheduled: "Scheduled", in_progress: "In Progress", completed: "Completed", cancelled: "Cancelled", draft: "Draft", sent: "Sent", paid: "Paid", overdue: "Overdue" }[s] || s);
+  ({ scheduled: "Scheduled", in_progress: "In Progress", completed: "Completed", cancelled: "Cancelled", draft: "Draft", approved: "Approved", sent: "Sent", paid: "Paid", overdue: "Overdue" }[s] || s);
 
 const fmtDate = (d: string | null) => {
   if (!d) return "—";
@@ -81,7 +83,7 @@ const roleBadgeStyle = (r: string) => ({
 // ============================================================
 function StatusBadge({ status }: { status: string }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${statusColors[status] || "bg-stone-100 text-stone-600"}`}>
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-sm font-semibold border ${statusColors[status] || "bg-stone-100 text-stone-600"}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${statusDotColors[status] || "bg-stone-400"}`} />
       {statusLabel(status)}
     </span>
@@ -104,7 +106,7 @@ function PageHeader({ title, subtitle, action }: { title: string; subtitle?: str
     <div className="flex justify-between items-start mb-6 gap-3">
       <div className="min-w-0 flex-1">
         <h1 className="text-xl sm:text-2xl font-bold text-stone-900 truncate">{title}</h1>
-        {subtitle && <p className="text-sm text-stone-500 mt-0.5">{subtitle}</p>}
+        {subtitle && <p className="text-base text-stone-500 mt-0.5">{subtitle}</p>}
       </div>
       <div className="flex-shrink-0">{action}</div>
     </div>
@@ -120,7 +122,7 @@ function Btn({ children, variant = "primary", className = "", ...props }: any) {
     accent: "bg-harvest-500 text-white hover:bg-harvest-600 shadow-sm",
   };
   return (
-    <button className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 ${styles[variant]} ${className}`} {...props}>
+    <button className={`inline-flex items-center justify-center gap-2 px-5 py-3 rounded-lg text-base font-semibold transition-all duration-150 ${styles[variant]} ${className}`} {...props}>
       {children}
     </button>
   );
@@ -129,7 +131,7 @@ function Btn({ children, variant = "primary", className = "", ...props }: any) {
 function FormField({ label, required, children }: { label: string; required?: boolean; children: ReactNode }) {
   return (
     <div className="mb-4">
-      <label className="block text-xs font-semibold text-stone-500 mb-1.5">
+      <label className="block text-sm font-semibold text-stone-500 mb-1.5">
         {label}{required && <span className="text-red-500"> *</span>}
       </label>
       {children}
@@ -137,7 +139,7 @@ function FormField({ label, required, children }: { label: string; required?: bo
   );
 }
 
-const inputClass = "w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:border-field-500 focus:ring-2 focus:ring-field-500/20 transition placeholder:text-stone-400";
+const inputClass = "w-full px-3.5 py-3 border border-stone-300 rounded-lg text-base bg-white focus:outline-none focus:border-field-500 focus:ring-2 focus:ring-field-500/20 transition placeholder:text-stone-400";
 
 function Modal({ isOpen, onClose, title, children }: { isOpen: boolean; onClose: () => void; title: string; children: ReactNode }) {
   if (!isOpen) return null;
@@ -160,7 +162,7 @@ function StatCard({ value, label, color = "text-stone-900" }: { value: string | 
   return (
     <div className="bg-white border border-stone-200 rounded-xl p-5">
       <div className={`text-2xl font-bold ${color}`}>{value}</div>
-      <div className="text-xs text-stone-500 mt-0.5">{label}</div>
+      <div className="text-sm text-stone-500 mt-0.5">{label}</div>
     </div>
   );
 }
@@ -204,15 +206,48 @@ function WizardNav({ onBack, onNext, nextLabel = "Next", nextDisabled, backLabel
 const jobStatusOrder: Record<string, number> = { in_progress: 0, scheduled: 1, completed: 2 };
 
 function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => void; onNavigate?: (view: string, filter?: string) => void }) {
-  const { jobs, invoices, users, customers, currentUser } = useApp();
+  const { jobs, invoices, users, customers, currentUser, refresh } = useApp();
   const role = currentUser?.role;
   const isAdmin = role === "admin";
   const isContractor = role === "contractor";
+  const [quickViewInvoice, setQuickViewInvoice] = useState<any>(null);
+  const [invoiceActing, setInvoiceActing] = useState(false);
+
+  const handleQuickApprove = async () => {
+    if (!quickViewInvoice) return;
+    if (!confirm("Approve this invoice? It will be locked from editing.")) return;
+    setInvoiceActing(true);
+    try {
+      await api.approveInvoice(quickViewInvoice.id);
+      await refresh();
+      setQuickViewInvoice(null);
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    }
+    setInvoiceActing(false);
+  };
+
+  const handleQuickReject = async () => {
+    if (!quickViewInvoice) return;
+    const comment = prompt("Reason for rejecting this invoice (required):");
+    if (comment === null) return;
+    if (!comment.trim()) { alert("A comment is required to reject an invoice."); return; }
+    setInvoiceActing(true);
+    try {
+      await api.rejectInvoice(quickViewInvoice.id, comment.trim());
+      await refresh();
+      setQuickViewInvoice(null);
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    }
+    setInvoiceActing(false);
+  };
 
   const active = jobs.filter((j: any) => j.status !== "completed" && j.status !== "cancelled");
   const completed = jobs.filter((j: any) => j.status === "completed");
   const totalInvoiced = invoices.reduce((s: number, i: any) => s + Number(i.total), 0);
   const unpaid = invoices.filter((i: any) => i.status !== "paid");
+  const needsApproval = invoices.filter((i: any) => i.status === "draft");
   const teamMembers = users;
 
   // Admins see the full financial picture; job admins and contractors don't need invoicing figures here
@@ -247,18 +282,45 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
         )}
       </div>
 
+      {isAdmin && needsApproval.length > 0 && (
+        <Card className="p-5 mb-6 border-indigo-200 bg-indigo-50/30">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-base font-bold text-stone-900">Invoices Needing Approval</h3>
+            <button onClick={() => onNavigate?.("invoices")} className="text-sm font-semibold text-field-700 hover:underline">View all</button>
+          </div>
+          <div className="space-y-1">
+            {needsApproval.map((inv: any) => (
+              <div key={inv.id} onClick={() => setQuickViewInvoice(inv)} className="flex justify-between items-center gap-3 py-2.5 border-b border-stone-100 last:border-0 cursor-pointer hover:bg-white -mx-2 px-2 rounded-lg transition">
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-base truncate flex items-center gap-1.5">
+                    {inv.invoiceNumber} · {inv.customer?.name}
+                    {inv.rejectionComment && (
+                      <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs font-bold uppercase tracking-wide flex-shrink-0">Rejected</span>
+                    )}
+                  </div>
+                  <div className="text-sm text-stone-500 truncate">
+                    {inv.rejectionComment ? <span className="text-red-600">{inv.rejectionComment}</span> : `Created by ${inv.createdByUser?.name || "—"}`}
+                  </div>
+                </div>
+                <div className="flex-shrink-0 font-mono font-semibold text-base">{fmtCurrency(Number(inv.total))}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <div className={showTeam ? "grid lg:grid-cols-2 gap-6" : ""}>
         <Card className="p-5">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-sm font-bold text-stone-900">Recent Jobs</h3>
-            <button onClick={() => onNavigate?.("jobs")} className="text-xs font-semibold text-field-700 hover:underline">View all</button>
+            <h3 className="text-base font-bold text-stone-900">Recent Jobs</h3>
+            <button onClick={() => onNavigate?.("jobs")} className="text-sm font-semibold text-field-700 hover:underline">View all</button>
           </div>
           <div className="space-y-1">
             {recentJobs.map((job: any) => (
               <div key={job.id} onClick={() => onSelectJob?.(job)} className="flex justify-between items-center gap-3 py-2.5 border-b border-stone-100 last:border-0 cursor-pointer hover:bg-stone-50 -mx-2 px-2 rounded-lg transition">
                 <div className="min-w-0 flex-1">
-                  <div className="font-semibold text-sm truncate">{job.title}</div>
-                  <div className="text-xs text-stone-500 truncate">{job.customer?.name} · {fmtDate(job.plannedDate)}</div>
+                  <div className="font-semibold text-base truncate">{job.title}</div>
+                  <div className="text-sm text-stone-500 truncate">{job.customer?.name} · {fmtDate(job.plannedDate)}</div>
                 </div>
                 <div className="flex-shrink-0"><StatusBadge status={job.status} /></div>
               </div>
@@ -269,8 +331,8 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
         {showTeam && (
           <Card className="p-5">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-stone-900">Team</h3>
-              <button onClick={() => onNavigate?.("team")} className="text-xs font-semibold text-field-700 hover:underline">Manage</button>
+              <h3 className="text-base font-bold text-stone-900">Team</h3>
+              <button onClick={() => onNavigate?.("team")} className="text-sm font-semibold text-field-700 hover:underline">Manage</button>
             </div>
             <div className="space-y-1">
               {teamMembers.map((user: any) => {
@@ -278,15 +340,15 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
                 return (
                   <div key={user.id} className="flex justify-between items-center gap-3 py-2.5 border-b border-stone-100 last:border-0">
                     <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="w-9 h-9 rounded-full bg-field-100 flex items-center justify-center text-field-700 font-bold text-xs flex-shrink-0">
+                      <div className="w-9 h-9 rounded-full bg-field-100 flex items-center justify-center text-field-700 font-bold text-sm flex-shrink-0">
                         {user.name.split(" ").map((n: string) => n[0]).join("")}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-semibold text-sm truncate">{user.name}</div>
-                        <div className="text-xs text-stone-500">{userJobs.length} active jobs</div>
+                        <div className="font-semibold text-base truncate">{user.name}</div>
+                        <div className="text-sm text-stone-500">{userJobs.length} active jobs</div>
                       </div>
                     </div>
-                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${roleBadgeStyle(user.role)}`}>{roleLabel(user.role)}</span>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${roleBadgeStyle(user.role)}`}>{roleLabel(user.role)}</span>
                   </div>
                 );
               })}
@@ -294,6 +356,58 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
           </Card>
         )}
       </div>
+
+      {/* Invoice Quick View — approve/reject without leaving the dashboard */}
+      <Modal isOpen={!!quickViewInvoice} onClose={() => setQuickViewInvoice(null)} title={quickViewInvoice?.invoiceNumber || ""}>
+        {quickViewInvoice && (
+          <div>
+            <div className="grid grid-cols-2 gap-3 text-base mb-4">
+              <div><span className="text-stone-500">Customer:</span> <span className="font-medium">{quickViewInvoice.customer?.name}</span></div>
+              <div><span className="text-stone-500">Total:</span> <span className="font-mono font-semibold">{fmtCurrency(Number(quickViewInvoice.total))}</span></div>
+              <div><span className="text-stone-500">Created by:</span> <span className="font-medium">{quickViewInvoice.createdByUser?.name || "—"}</span></div>
+              <div><span className="text-stone-500">Date:</span> <span className="font-medium">{fmtDate(quickViewInvoice.invoiceDate)}</span></div>
+            </div>
+
+            {quickViewInvoice.rejectionComment && (
+              <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2.5 mb-4">
+                Previously rejected: {quickViewInvoice.rejectionComment}
+              </div>
+            )}
+
+            <div className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">Line Items</div>
+            <div className="space-y-1.5 mb-5 max-h-48 overflow-y-auto">
+              {(quickViewInvoice.items || []).map((item: any) => (
+                <div key={item.id} className="flex justify-between items-center gap-3 py-2 border-b border-stone-100 last:border-0 text-base">
+                  <div className="min-w-0 flex-1 truncate">{item.description}</div>
+                  <div className="flex-shrink-0 font-mono">{fmtCurrency(Number(item.totalPrice))}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={handleQuickReject}
+                disabled={invoiceActing}
+                className="flex-1 py-3 rounded-xl text-base font-semibold text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50 transition"
+              >
+                Reject
+              </button>
+              {quickViewInvoice.createdBy !== currentUser?.id && (
+                <button
+                  onClick={handleQuickApprove}
+                  disabled={invoiceActing}
+                  className="flex-[2] py-3 rounded-xl text-base font-semibold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 transition"
+                >
+                  {invoiceActing ? "Working..." : "Approve"}
+                </button>
+              )}
+            </div>
+            {quickViewInvoice.createdBy === currentUser?.id && (
+              <div className="text-sm text-stone-400 mt-2 text-center">You created this invoice — another admin needs to approve it.</div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -432,10 +546,10 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
         {filtered.map((job: any) => (
           <Card key={job.id} className="p-4" onClick={() => onSelectJob(job)}>
             <div className="flex justify-between items-start gap-2 mb-2">
-              <div className="font-bold text-sm min-w-0 flex-1 truncate">{job.title}</div>
+              <div className="font-bold text-base min-w-0 flex-1 truncate">{job.title}</div>
               <div className="flex-shrink-0"><StatusBadge status={job.status} /></div>
             </div>
-            <div className="text-xs text-stone-500 space-y-0.5">
+            <div className="text-sm text-stone-500 space-y-0.5">
               <div className="truncate">{job.customer?.name}{job.field?.fieldName ? ` · ${job.field.fieldName}` : ""}</div>
               <div>{fmtDate(job.plannedDate)} · {job.estimatedQuantity ? `${Number(job.estimatedQuantity)} ${job.unitType || "units"}` : ""}</div>
             </div>
@@ -469,11 +583,11 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
               <input className={inputClass} type="number" step="0.1" placeholder="Acres" value={newField.hectares} onChange={e => setNewField(f => ({ ...f, hectares: e.target.value }))} />
               <div className="flex gap-2">
                 <button type="button" onClick={() => { setAddingField(false); setNewField({ fieldName: "", hectares: "" }); }}
-                  className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold text-stone-500 bg-white border border-stone-200 hover:bg-stone-100 transition">
+                  className="flex-1 px-3 py-2.5 rounded-lg text-sm font-semibold text-stone-500 bg-white border border-stone-200 hover:bg-stone-100 transition">
                   Cancel
                 </button>
                 <button type="button" onClick={handleAddField} disabled={savingField || !newField.fieldName}
-                  className="flex-[2] px-3 py-2 rounded-lg text-xs font-semibold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                  className="flex-[2] px-3 py-2.5 rounded-lg text-sm font-semibold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition">
                   {savingField ? "Saving..." : "Save Field"}
                 </button>
               </div>
@@ -485,7 +599,7 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
                 {customerFields.map((f: any) => <option key={f.id} value={f.id}>{f.fieldName} ({Number(f.hectares)} ac)</option>)}
               </select>
               {form.customerId && (
-                <button type="button" onClick={() => setAddingField(true)} className="mt-1.5 text-xs font-semibold text-field-700 hover:underline">
+                <button type="button" onClick={() => setAddingField(true)} className="mt-1.5 text-sm font-semibold text-field-700 hover:underline">
                   + Add a new field for this customer
                 </button>
               )}
@@ -668,6 +782,14 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
 
         {/* Status actions — large, stacked, full-width for easy tapping in the field */}
         <div className="flex flex-col gap-3 mt-5 pt-4 border-t border-stone-100">
+          {job.status !== "completed" && job.status !== "cancelled" && (
+            <button
+              onClick={() => setShowLogForm(true)}
+              className="w-full py-4 rounded-2xl text-base font-bold text-white bg-blue-700 hover:bg-blue-800 shadow-sm transition"
+            >
+              + Log Work
+            </button>
+          )}
           {job.status === "scheduled" && (
             <button
               onClick={() => handleStatusChange("in_progress")}
@@ -711,11 +833,11 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
 
       {/* Progress */}
       <Card className="p-5 mb-4">
-        <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-3">Progress</div>
+        <div className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-3">Progress</div>
         <div className="flex gap-8 mb-3">
           <div>
             <span className="text-2xl font-bold">{totalQty}</span>
-            <span className="text-sm text-stone-500">{estQty ? ` / ${estQty}` : ""} {job.unitType || "units"} completed</span>
+            <span className="text-base text-stone-500">{estQty ? ` / ${estQty}` : ""} {job.unitType || "units"} completed</span>
           </div>
         </div>
         {estQty > 0 && (
@@ -723,31 +845,21 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
             <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
               <div className={`h-full rounded-full transition-all duration-500 ${progress >= 100 ? "bg-emerald-500" : "bg-field-600"}`} style={{ width: `${progress}%` }} />
             </div>
-            <div className="text-right text-xs text-stone-400 mt-1">{progress}% complete</div>
+            <div className="text-right text-sm text-stone-400 mt-1">{progress}% complete</div>
           </>
         )}
       </Card>
 
-      {/* Log Work button */}
-      {job.status !== "completed" && job.status !== "cancelled" && (
-        <button
-          onClick={() => setShowLogForm(true)}
-          className="w-full mb-5 py-5 rounded-2xl text-lg font-bold text-white bg-field-700 hover:bg-field-800 shadow-sm transition"
-        >
-          + Log Work
-        </button>
-      )}
-
       {/* Work Logs */}
       {logs.length > 0 && (
         <div>
-          <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2">Work Logs</div>
+          <div className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">Work Logs</div>
           <div className="space-y-2">
             {logs.map((log: any) => (
               <Card key={log.id} className="p-4">
-                <div className="flex justify-between text-sm">
+                <div className="flex justify-between text-base">
                   <span className="font-semibold">{log.machine?.name || "No machine"}</span>
-                  <span className="text-stone-400">{fmtDate(log.createdAt)}</span>
+                  <span className="text-stone-400 text-sm">{fmtDate(log.createdAt)}</span>
                 </div>
                 <div className="text-sm text-stone-500 mt-1">
                   {Number(log.quantityCompleted)} {job.unitType || "units"}
@@ -766,7 +878,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
           <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl overflow-y-auto sm:max-h-[90vh] p-6 animate-[slideUp_0.3s_ease-out]" onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div className="flex justify-between items-center mb-2">
-              <div className="text-xs font-bold uppercase tracking-wider text-stone-400">Step {logStep + 1} of 4</div>
+              <div className="text-sm font-bold uppercase tracking-wider text-stone-400">Step {logStep + 1} of 4</div>
               <button onClick={closeLogForm} className="text-stone-400 hover:text-stone-600 p-2 -mr-2">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
               </button>
@@ -782,7 +894,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
                     className={`w-full text-left px-4 py-4 rounded-2xl border-2 transition ${logForm.machineId === "" ? "border-field-600 bg-field-50" : "border-stone-200 bg-white hover:border-stone-300"}`}
                   >
                     <div className="font-bold text-base">No machine</div>
-                    <div className="text-xs text-stone-500">Not applicable for this job</div>
+                    <div className="text-sm text-stone-500">Not applicable for this job</div>
                   </button>
                   {machines.filter((m: any) => m.active).map((m: any) => (
                     <button
@@ -791,7 +903,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
                       className={`w-full text-left px-4 py-4 rounded-2xl border-2 transition ${logForm.machineId === String(m.id) ? "border-field-600 bg-field-50" : "border-stone-200 bg-white hover:border-stone-300"}`}
                     >
                       <div className="font-bold text-base">{m.name}</div>
-                      <div className="text-xs text-stone-500">{m.registration}</div>
+                      <div className="text-sm text-stone-500">{m.registration}</div>
                     </button>
                   ))}
                 </div>
@@ -1088,35 +1200,35 @@ function CustomersView() {
             <Card key={c.id} className="p-4">
               <div className="flex justify-between items-start gap-2" onClick={() => setExpandedId(isExpanded ? null : c.id)}>
                 <div className="min-w-0 flex-1">
-                  <div className="font-bold text-sm truncate">{c.name}</div>
-                  <div className="text-xs text-stone-500 mt-0.5 truncate">
+                  <div className="font-bold text-base truncate">{c.name}</div>
+                  <div className="text-sm text-stone-500 mt-0.5 truncate">
                     {c.contact && <span>{c.contact} · </span>}{c.phone}
                   </div>
-                  <div className="text-xs text-stone-400 mt-0.5">{custFields.length} fields · {totalHa} ac</div>
+                  <div className="text-sm text-stone-400 mt-0.5">{custFields.length} fields · {totalHa} ac</div>
                 </div>
                 <div className="flex gap-1 flex-shrink-0">
-                  <button onClick={(e) => { e.stopPropagation(); openEdit(c); }} className="px-2 py-1 text-xs font-medium text-field-700 bg-field-50 rounded hover:bg-field-100 transition">Edit</button>
+                  <button onClick={(e) => { e.stopPropagation(); openEdit(c); }} className="px-2.5 py-1.5 text-sm font-medium text-field-700 bg-field-50 rounded hover:bg-field-100 transition">Edit</button>
                 </div>
               </div>
               {isExpanded && (
                 <div className="mt-3 pt-3 border-t border-stone-100">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500">Fields</span>
-                    <button onClick={() => openAddField(c.id)} className="text-xs font-semibold text-field-700">+ Add</button>
+                    <span className="text-xs font-bold uppercase tracking-wider text-stone-500">Fields</span>
+                    <button onClick={() => openAddField(c.id)} className="text-sm font-semibold text-field-700">+ Add</button>
                   </div>
                   {custFields.map((f: any) => (
                     <div key={f.id} className="py-1.5 border-b border-stone-100 last:border-0">
                       <div className="flex justify-between items-center">
-                        <div className="text-sm">{f.fieldName} <span className="text-stone-400 text-xs">{Number(f.hectares)} ac</span></div>
+                        <div className="text-base">{f.fieldName} <span className="text-stone-400 text-sm">{Number(f.hectares)} ac</span></div>
                         <div className="flex gap-2">
-                          <button onClick={() => openEditField(f)} className="text-xs text-field-700">Edit</button>
-                          <button onClick={() => handleDeleteField(f.id, f.fieldName)} className="text-xs text-red-500">Remove</button>
+                          <button onClick={() => openEditField(f)} className="text-sm text-field-700">Edit</button>
+                          <button onClick={() => handleDeleteField(f.id, f.fieldName)} className="text-sm text-red-500">Remove</button>
                         </div>
                       </div>
-                      {f.notes && <p className="text-xs text-stone-400 mt-0.5 italic">{f.notes}</p>}
+                      {f.notes && <p className="text-sm text-stone-400 mt-0.5 italic">{f.notes}</p>}
                     </div>
                   ))}
-                  {custFields.length === 0 && <div className="text-xs text-stone-400">No fields</div>}
+                  {custFields.length === 0 && <div className="text-sm text-stone-400">No fields</div>}
                 </div>
               )}
             </Card>
@@ -1198,7 +1310,7 @@ function CustomersView() {
 // INVOICES
 // ============================================================
 function InvoicesView({ initialFilter }: { initialFilter?: string }) {
-  const { invoices, customers, jobs, refresh } = useApp();
+  const { invoices, customers, jobs, currentUser, refresh } = useApp();
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState("");
@@ -1297,6 +1409,28 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
     }
   };
 
+  const handleApprove = async (id: number) => {
+    if (!confirm("Approve this invoice? It will be locked from editing.")) return;
+    try {
+      await api.approveInvoice(id);
+      await refresh();
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    }
+  };
+
+  const handleReject = async (id: number) => {
+    const comment = prompt("Reason for rejecting this invoice (required):");
+    if (comment === null) return;
+    if (!comment.trim()) { alert("A comment is required to reject an invoice."); return; }
+    try {
+      await api.rejectInvoice(id, comment.trim());
+      await refresh();
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    }
+  };
+
   const handleDownload = async (invoiceId: number, invoiceNumber: string, format: "docx" | "pdf") => {
     try {
       const response = await fetch(`/api/invoices/${invoiceId}/${format}`);
@@ -1324,9 +1458,9 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
       />
 
       <div className="flex gap-1.5 mb-5 flex-wrap">
-        {["all", "unpaid", "draft", "sent", "paid"].map(f => (
+        {["all", "unpaid", "draft", "approved", "sent", "paid"].map(f => (
           <button key={f} onClick={() => setFilter(f)}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${filter === f ? "bg-field-100 text-field-700" : "text-stone-500 hover:bg-stone-100"}`}>
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${filter === f ? "bg-field-100 text-field-700" : "text-stone-500 hover:bg-stone-100"}`}>
             {f === "all" ? "All" : f === "unpaid" ? "Unpaid" : statusLabel(f)}
           </button>
         ))}
@@ -1347,7 +1481,12 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
               <tbody>
                 {filteredInvoices.map((inv: any) => (
                   <tr key={inv.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50 transition">
-                    <td className="px-4 py-3 font-semibold text-sm font-mono">{inv.invoiceNumber}</td>
+                    <td className="px-4 py-3 font-semibold text-sm font-mono">
+                      {inv.invoiceNumber}
+                      {inv.status === "draft" && inv.rejectionComment && (
+                        <div className="text-[11px] font-normal font-sans text-red-600 mt-0.5 max-w-[220px] whitespace-normal">Rejected: {inv.rejectionComment}</div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-sm">{inv.customer?.name}</td>
                     <td className="px-4 py-3 text-sm">{fmtDate(inv.invoiceDate)}</td>
                     <td className="px-4 py-3 text-sm">{fmtDate(inv.dueDate)}</td>
@@ -1360,8 +1499,14 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                         {inv.status === "draft" && (
                           <>
                             <button onClick={() => openEditInvoice(inv)} className="px-2.5 py-1.5 text-xs font-medium text-stone-600 bg-stone-100 rounded-lg hover:bg-stone-200 transition">Edit</button>
-                            <button onClick={() => handleStatusUpdate(inv.id, "sent")} className="px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition">Send</button>
+                            {inv.createdBy !== currentUser?.id && (
+                              <button onClick={() => handleApprove(inv.id)} className="px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition">Approve</button>
+                            )}
+                            <button onClick={() => handleReject(inv.id)} className="px-2.5 py-1.5 text-xs font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100 transition">Reject</button>
                           </>
+                        )}
+                        {inv.status === "approved" && (
+                          <button onClick={() => handleStatusUpdate(inv.id, "sent")} className="px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition">Send</button>
                         )}
                         {inv.status === "sent" && (
                           <button onClick={() => handleStatusUpdate(inv.id, "paid")} className="px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition">Mark Paid</button>
@@ -1382,21 +1527,28 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
               <Card key={inv.id} className="p-4">
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <div className="font-mono font-bold text-sm">{inv.invoiceNumber}</div>
-                    <div className="text-xs text-stone-500">{inv.customer?.name}</div>
+                    <div className="font-mono font-bold text-base">{inv.invoiceNumber}</div>
+                    <div className="text-sm text-stone-500">{inv.customer?.name}</div>
                   </div>
                   <StatusBadge status={inv.status} />
                 </div>
+                {inv.status === "draft" && inv.rejectionComment && (
+                  <div className="text-sm text-red-600 mt-1">Rejected: {inv.rejectionComment}</div>
+                )}
                 <div className="flex justify-between items-center mt-2">
-                  <div className="text-xs text-stone-400">Due {fmtDate(inv.dueDate)}</div>
-                  <div className="font-bold font-mono">{fmtCurrency(Number(inv.total))}</div>
+                  <div className="text-sm text-stone-400">Due {fmtDate(inv.dueDate)}</div>
+                  <div className="font-bold font-mono text-base">{fmtCurrency(Number(inv.total))}</div>
                 </div>
                 <div className="flex gap-1.5 flex-wrap mt-3 pt-2 border-t border-stone-100">
-                  {inv.status === "draft" && <button onClick={() => openEditInvoice(inv)} className="px-2.5 py-1.5 text-xs font-medium text-stone-600 bg-stone-100 rounded-lg hover:bg-stone-200 transition">Edit</button>}
-                  {inv.status === "draft" && <button onClick={() => handleStatusUpdate(inv.id, "sent")} className="px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition">Mark Sent</button>}
-                  {inv.status === "sent" && <button onClick={() => handleStatusUpdate(inv.id, "paid")} className="px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition">Mark Paid</button>}
-                  <button onClick={() => handleDownload(inv.id, inv.invoiceNumber, "docx")} className="px-2.5 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition">Word</button>
-                  <button onClick={() => handleDownload(inv.id, inv.invoiceNumber, "pdf")} className="px-2.5 py-1.5 text-xs font-medium text-harvest-700 bg-harvest-50 rounded-lg hover:bg-harvest-100 transition">PDF</button>
+                  {inv.status === "draft" && <button onClick={() => openEditInvoice(inv)} className="px-2.5 py-1.5 text-sm font-medium text-stone-600 bg-stone-100 rounded-lg hover:bg-stone-200 transition">Edit</button>}
+                  {inv.status === "draft" && inv.createdBy !== currentUser?.id && (
+                    <button onClick={() => handleApprove(inv.id)} className="px-2.5 py-1.5 text-sm font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition">Approve</button>
+                  )}
+                  {inv.status === "draft" && <button onClick={() => handleReject(inv.id)} className="px-2.5 py-1.5 text-sm font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100 transition">Reject</button>}
+                  {inv.status === "approved" && <button onClick={() => handleStatusUpdate(inv.id, "sent")} className="px-2.5 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition">Send</button>}
+                  {inv.status === "sent" && <button onClick={() => handleStatusUpdate(inv.id, "paid")} className="px-2.5 py-1.5 text-sm font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition">Mark Paid</button>}
+                  <button onClick={() => handleDownload(inv.id, inv.invoiceNumber, "docx")} className="px-2.5 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition">Word</button>
+                  <button onClick={() => handleDownload(inv.id, inv.invoiceNumber, "pdf")} className="px-2.5 py-1.5 text-sm font-medium text-harvest-700 bg-harvest-50 rounded-lg hover:bg-harvest-100 transition">PDF</button>
                 </div>
               </Card>
             ))}
@@ -1425,8 +1577,8 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                   <label key={job.id} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition ${selectedJobIds.includes(job.id) ? "border-field-400 bg-field-50" : "border-stone-200 hover:bg-stone-50"}`}>
                     <input type="checkbox" checked={selectedJobIds.includes(job.id)} onChange={() => toggleJob(job.id)} className="accent-field-600" />
                     <div className="flex-1">
-                      <div className="font-semibold text-sm">{job.title}</div>
-                      <div className="text-xs text-stone-500">{job.field?.fieldName ? `${job.field.fieldName} · ` : ""}{job.jobType?.name}</div>
+                      <div className="font-semibold text-base">{job.title}</div>
+                      <div className="text-sm text-stone-500">{job.field?.fieldName ? `${job.field.fieldName} · ` : ""}{job.jobType?.name}</div>
                     </div>
                   </label>
                 ))}
@@ -1439,11 +1591,11 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
 
         <div className="mt-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500">Extra Line Items</span>
-            <button onClick={addExtraItem} className="text-xs text-field-700 font-semibold hover:underline">+ Add Line</button>
+            <span className="text-xs font-bold uppercase tracking-wider text-stone-500">Extra Line Items</span>
+            <button onClick={addExtraItem} className="text-sm text-field-700 font-semibold hover:underline">+ Add Line</button>
           </div>
           {extraItems.length === 0 && (
-            <div className="text-xs text-stone-400 py-2">No extra lines — <button onClick={addExtraItem} className="underline">add one</button> (e.g. Fuel Levy)</div>
+            <div className="text-sm text-stone-400 py-2">No extra lines — <button onClick={addExtraItem} className="underline">add one</button> (e.g. Fuel Levy)</div>
           )}
           {extraItems.map((item, i) => (
             <div key={i} className="mb-3 p-3 rounded-lg border border-stone-200 bg-stone-50 space-y-2">
@@ -1455,7 +1607,7 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
               />
               <div className="flex gap-2 items-center">
                 <input
-                  style={{ width: "60px", minWidth: "60px" }}
+                  style={{ width: "90px", minWidth: "90px" }}
                   className={inputClass}
                   type="number" step="1" min="1" placeholder="Qty"
                   value={item.quantity}
@@ -1475,7 +1627,7 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                     checked={item.vatApplicable}
                     onChange={e => updateExtraItem(i, "vatApplicable", e.target.checked)}
                   />
-                  <span className="text-xs text-stone-600 font-medium">VAT</span>
+                  <span className="text-sm text-stone-600 font-medium">VAT</span>
                 </label>
                 <button onClick={() => removeExtraItem(i)} className="text-stone-400 hover:text-red-500 flex-shrink-0">✕</button>
               </div>
@@ -1493,7 +1645,7 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
 
       {/* Edit Draft Invoice Modal */}
       <Modal isOpen={!!editingInvoice} onClose={() => setEditingInvoice(null)} title={`Edit ${editingInvoice?.invoiceNumber || ""}`}>
-        <div className="mb-3 text-xs text-stone-500">Edit line items below. Totals and VAT will be recalculated automatically.</div>
+        <div className="mb-3 text-sm text-stone-500">Edit line items below. Totals and VAT will be recalculated automatically.</div>
         <div className="space-y-3 max-h-80 overflow-y-auto mb-2">
           {editItems.map((item, i) => (
             <div key={i} className="p-3 rounded-lg border border-stone-200 bg-stone-50 space-y-2">
@@ -1505,7 +1657,7 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
               />
               <div className="flex gap-2 items-center">
                 <input
-                  style={{ width: "60px", minWidth: "60px" }}
+                  style={{ width: "90px", minWidth: "90px" }}
                   className={inputClass}
                   type="number" step="1" min="1" placeholder="Qty"
                   value={item.quantity}
@@ -1525,14 +1677,14 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                     checked={item.vatApplicable}
                     onChange={e => updateEditItem(i, "vatApplicable", e.target.checked)}
                   />
-                  <span className="text-xs text-stone-600 font-medium">VAT</span>
+                  <span className="text-sm text-stone-600 font-medium">VAT</span>
                 </label>
                 <button onClick={() => removeEditItem(i)} className="text-stone-400 hover:text-red-500 flex-shrink-0">✕</button>
               </div>
             </div>
           ))}
         </div>
-        <button onClick={addEditItem} className="text-xs text-field-700 font-semibold hover:underline mb-4 block">+ Add Line</button>
+        <button onClick={addEditItem} className="text-sm text-field-700 font-semibold hover:underline mb-4 block">+ Add Line</button>
         <div className="flex gap-2 mt-2">
           <Btn variant="ghost" className="flex-1" onClick={() => setEditingInvoice(null)}>Cancel</Btn>
           <Btn className="flex-[2]" onClick={handleEditSave} disabled={editSaving || editItems.length === 0}>
@@ -1624,18 +1776,18 @@ function JobTypesView() {
           <Card key={jt.id} className="p-4">
             <div className="flex justify-between items-start gap-3">
               <div className="min-w-0 flex-1">
-                <div className="font-bold text-sm">{jt.name}</div>
-                <div className="text-xs text-stone-500 mt-0.5 flex items-center gap-2">
+                <div className="font-bold text-base">{jt.name}</div>
+                <div className="text-sm text-stone-500 mt-0.5 flex items-center gap-2">
                   <span>{fmtCurrency(Number(jt.defaultRate))} per {jt.billingUnit}</span>
                   {jt._count?.jobs > 0 && <span>· {jt._count.jobs} jobs</span>}
-                  {jt.vatApplicable === false && <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-semibold">No VAT</span>}
+                  {jt.vatApplicable === false && <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-semibold">No VAT</span>}
                 </div>
-                {jt.description && <div className="text-xs text-stone-400 mt-1">{jt.description}</div>}
+                {jt.description && <div className="text-sm text-stone-400 mt-1">{jt.description}</div>}
               </div>
               {isAdmin && (
                 <div className="flex gap-1 flex-shrink-0">
-                  <button onClick={() => openEdit(jt)} className="px-2.5 py-1.5 text-xs font-medium text-field-700 bg-field-50 rounded-lg hover:bg-field-100 transition">Edit</button>
-                  <button onClick={() => handleDelete(jt.id, jt.name)} className="px-2.5 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition">Delete</button>
+                  <button onClick={() => openEdit(jt)} className="px-2.5 py-1.5 text-sm font-medium text-field-700 bg-field-50 rounded-lg hover:bg-field-100 transition">Edit</button>
+                  <button onClick={() => handleDelete(jt.id, jt.name)} className="px-2.5 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition">Delete</button>
                 </div>
               )}
             </div>
@@ -1748,20 +1900,20 @@ function MachinesView() {
         {machines.map((m: any) => (
           <Card key={m.id} className="p-5">
             <div className="flex justify-between items-start gap-2 mb-2">
-              <div className="font-bold text-sm min-w-0 flex-1 truncate">{m.name}</div>
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${m.active ? "bg-emerald-50 text-emerald-600" : "bg-stone-100 text-stone-500"}`}>
+              <div className="font-bold text-base min-w-0 flex-1 truncate">{m.name}</div>
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${m.active ? "bg-emerald-50 text-emerald-600" : "bg-stone-100 text-stone-500"}`}>
                 {m.active ? "Active" : "Inactive"}
               </span>
             </div>
-            <div className="text-xs text-stone-500">{m.machineType}</div>
-            <div className="text-xs text-stone-400 font-mono mt-0.5">{m.registration || "N/A"}</div>
-            {m._count?.jobLogs > 0 && <div className="text-xs text-stone-400 mt-2">{m._count.jobLogs} work logs</div>}
+            <div className="text-sm text-stone-500">{m.machineType}</div>
+            <div className="text-sm text-stone-400 font-mono mt-0.5">{m.registration || "N/A"}</div>
+            {m._count?.jobLogs > 0 && <div className="text-sm text-stone-400 mt-2">{m._count.jobLogs} work logs</div>}
             <div className="flex gap-1.5 mt-3 pt-3 border-t border-stone-100">
-              <button onClick={() => openEdit(m)} className="px-2.5 py-1.5 text-xs font-medium text-field-700 bg-field-50 rounded-lg hover:bg-field-100 transition">Edit</button>
-              <button onClick={() => handleToggleActive(m)} className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition ${m.active ? "text-amber-700 bg-amber-50 hover:bg-amber-100" : "text-emerald-700 bg-emerald-50 hover:bg-emerald-100"}`}>
+              <button onClick={() => openEdit(m)} className="px-2.5 py-1.5 text-sm font-medium text-field-700 bg-field-50 rounded-lg hover:bg-field-100 transition">Edit</button>
+              <button onClick={() => handleToggleActive(m)} className={`px-2.5 py-1.5 text-sm font-medium rounded-lg transition ${m.active ? "text-amber-700 bg-amber-50 hover:bg-amber-100" : "text-emerald-700 bg-emerald-50 hover:bg-emerald-100"}`}>
                 {m.active ? "Deactivate" : "Activate"}
               </button>
-              <button onClick={() => handleDelete(m.id, m.name)} className="px-2.5 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition">Delete</button>
+              <button onClick={() => handleDelete(m.id, m.name)} className="px-2.5 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition">Delete</button>
             </div>
           </Card>
         ))}
@@ -1857,35 +2009,35 @@ function DataToolCard({ label, count, columnsHint, exportUrl, importUrl, filenam
     <Card className="p-5">
       <div className="flex justify-between items-start gap-3 mb-1">
         <div>
-          <h3 className="text-sm font-bold text-stone-900">{label}</h3>
-          <p className="text-xs text-stone-500 mt-0.5">{count} record{count === 1 ? "" : "s"} · columns: {columnsHint}</p>
+          <h3 className="text-base font-bold text-stone-900">{label}</h3>
+          <p className="text-sm text-stone-500 mt-0.5">{count} record{count === 1 ? "" : "s"} · columns: {columnsHint}</p>
         </div>
       </div>
 
       <div className="flex gap-2 mt-4">
         <button onClick={handleExport} disabled={exporting}
-          className="px-3.5 py-2 text-xs font-semibold text-field-700 bg-field-50 rounded-lg hover:bg-field-100 disabled:opacity-50 transition">
+          className="px-3.5 py-2.5 text-sm font-semibold text-field-700 bg-field-50 rounded-lg hover:bg-field-100 disabled:opacity-50 transition">
           {exporting ? "Exporting..." : "Export CSV"}
         </button>
         <button onClick={() => fileInputRef.current?.click()} disabled={importing}
-          className="px-3.5 py-2 text-xs font-semibold text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition">
+          className="px-3.5 py-2.5 text-sm font-semibold text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition">
           {importing ? "Importing..." : "Import CSV"}
         </button>
         <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleFileSelected} />
       </div>
 
-      {error && <div className="mt-3 text-xs text-red-600">{error}</div>}
+      {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
 
       {result && (
         <div className="mt-3 p-3 rounded-lg bg-stone-50 border border-stone-200">
-          <div className="text-xs font-semibold text-stone-700">
+          <div className="text-sm font-semibold text-stone-700">
             {result.created} created · {result.updated} updated
             {result.errors.length > 0 && ` · ${result.errors.length} error${result.errors.length === 1 ? "" : "s"}`}
           </div>
           {result.errors.length > 0 && (
             <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
               {result.errors.map((e, i) => (
-                <div key={i} className="text-[11px] text-red-600">Row {e.row}: {e.message}</div>
+                <div key={i} className="text-xs text-red-600">Row {e.row}: {e.message}</div>
               ))}
             </div>
           )}
@@ -1921,7 +2073,7 @@ function DataToolsView() {
           onImported={refresh}
         />
       </div>
-      <p className="text-xs text-stone-400 mt-4">
+      <p className="text-sm text-stone-400 mt-4">
         Leave the "id" column blank to create a new record. Export first to get a starting template, or to bulk-edit existing data — re-importing it will update matching rows by id and add any new ones.
       </p>
     </div>
@@ -2007,13 +2159,13 @@ function TeamView() {
           {u.name.split(" ").map((n: string) => n[0]).join("")}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-semibold text-sm truncate">{u.name}</div>
-          <div className="text-xs text-stone-500 truncate">{u.username ? `@${u.username}` : ""}{u.username && u.email ? " · " : ""}{u.email || ""}{u.phone ? ` · ${u.phone}` : ""}</div>
+          <div className="font-semibold text-base truncate">{u.name}</div>
+          <div className="text-sm text-stone-500 truncate">{u.username ? `@${u.username}` : ""}{u.username && u.email ? " · " : ""}{u.email || ""}{u.phone ? ` · ${u.phone}` : ""}</div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {!u.active && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-stone-100 text-stone-500">Inactive</span>}
-          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${roleBadgeStyle(u.role)}`}>{roleLabel(u.role)}</span>
-          <button onClick={() => openEdit(u)} className="px-2.5 py-1.5 text-xs font-medium text-field-700 bg-field-50 rounded-lg hover:bg-field-100 transition">Edit</button>
+          {!u.active && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-stone-100 text-stone-500">Inactive</span>}
+          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${roleBadgeStyle(u.role)}`}>{roleLabel(u.role)}</span>
+          <button onClick={() => openEdit(u)} className="px-2.5 py-1.5 text-sm font-medium text-field-700 bg-field-50 rounded-lg hover:bg-field-100 transition">Edit</button>
         </div>
       </div>
     </Card>
@@ -2029,20 +2181,20 @@ function TeamView() {
 
       {admins.length > 0 && (
         <div className="mb-6">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2">Administrators</div>
+          <div className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">Administrators</div>
           <div className="space-y-2">{admins.map(renderUserCard)}</div>
         </div>
       )}
 
       {jobAdmins.length > 0 && (
         <div className="mb-6">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2">Job Administrators</div>
+          <div className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">Job Administrators</div>
           <div className="space-y-2">{jobAdmins.map(renderUserCard)}</div>
         </div>
       )}
 
       <div>
-        <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2">Contractors</div>
+        <div className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">Contractors</div>
         <div className="space-y-2">
           {contractors.map(renderUserCard)}
           {contractors.length === 0 && (
@@ -2066,7 +2218,7 @@ function TeamView() {
             <input className={inputClass} type="email" placeholder="jack@example.co.uk" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
           </FormField>
         </div>
-        <p className="text-xs text-stone-400 -mt-2 mb-4">At least one of username or email is required for login</p>
+        <p className="text-sm text-stone-400 -mt-2 mb-4">At least one of username or email is required for login</p>
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Phone">
             <input className={inputClass} placeholder="07712 345678" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
@@ -2104,7 +2256,7 @@ function TeamView() {
             <input className={inputClass} type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} />
           </FormField>
         </div>
-        <p className="text-xs text-stone-400 -mt-2 mb-4">At least one of username or email is required for login</p>
+        <p className="text-sm text-stone-400 -mt-2 mb-4">At least one of username or email is required for login</p>
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Phone">
             <input className={inputClass} value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} />
@@ -2125,7 +2277,7 @@ function TeamView() {
             <input type="checkbox" checked={editForm.active} onChange={e => setEditForm(f => ({ ...f, active: e.target.checked }))} className="accent-field-600 w-4 h-4" />
             <span className="text-sm font-medium">Active</span>
           </label>
-          {!editForm.active && <span className="text-xs text-stone-400">User won't be able to log in</span>}
+          {!editForm.active && <span className="text-sm text-stone-400">User won't be able to log in</span>}
         </div>
         {editError && <div className="mb-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">{editError}</div>}
         <div className="flex gap-2 mt-2">
@@ -2287,7 +2439,7 @@ function WorkOrdersView() {
       <div className="flex gap-1.5 mb-5">
         {(["orders", "templates"] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${tab === t ? "bg-field-100 text-field-700" : "text-stone-500 hover:bg-stone-100"}`}>
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${tab === t ? "bg-field-100 text-field-700" : "text-stone-500 hover:bg-stone-100"}`}>
             {t === "orders" ? `Work Orders (${workOrders.length})` : `Package Templates (${templates.length})`}
           </button>
         ))}
@@ -2307,21 +2459,21 @@ function WorkOrdersView() {
             <div className="flex justify-between items-start gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="font-bold text-sm">{g.name}</span>
+                  <span className="font-bold text-base">{g.name}</span>
                   {!g.isTemplate && (
-                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${statusColour(g.status)}`}>
+                    <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${statusColour(g.status)}`}>
                       {g.status}
                     </span>
                   )}
                 </div>
-                {g.customer && <div className="text-xs text-stone-500 mb-1">{g.customer.name}</div>}
-                {g.description && <div className="text-xs text-stone-400 mb-2">{g.description}</div>}
+                {g.customer && <div className="text-sm text-stone-500 mb-1">{g.customer.name}</div>}
+                {g.description && <div className="text-sm text-stone-400 mb-2">{g.description}</div>}
 
                 {/* Template items */}
                 {g.isTemplate && g.templateItems?.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-1">
                     {g.templateItems.map((item: any, i: number) => (
-                      <span key={item.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-stone-100 rounded text-xs text-stone-600">
+                      <span key={item.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-stone-100 rounded text-sm text-stone-600">
                         <span className="text-stone-400">{i + 1}.</span> {item.jobType?.name}
                       </span>
                     ))}
@@ -2332,7 +2484,7 @@ function WorkOrdersView() {
                 {!g.isTemplate && g.jobs?.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {g.jobs.map((job: any) => (
-                      <div key={job.id} className="flex items-center gap-2 text-xs text-stone-600">
+                      <div key={job.id} className="flex items-center gap-2 text-sm text-stone-600">
                         <StatusBadge status={job.status} />
                         <span>{job.title}</span>
                         {job.field && <span className="text-stone-400">· {job.field.fieldName}</span>}
@@ -2346,12 +2498,12 @@ function WorkOrdersView() {
               <div className="flex gap-1 flex-shrink-0">
                 {g.isTemplate && (
                   <button onClick={() => { setApplyingTemplate(g); setApplyForm({ customerId: "", fieldId: "", assignedToUserId: "", plannedDate: "", overrides: {} }); }}
-                    className="px-2.5 py-1.5 text-xs font-medium text-harvest-700 bg-harvest-50 rounded-lg hover:bg-harvest-100 transition">
+                    className="px-2.5 py-1.5 text-sm font-medium text-harvest-700 bg-harvest-50 rounded-lg hover:bg-harvest-100 transition">
                     Apply
                   </button>
                 )}
-                <button onClick={() => openEdit(g)} className="px-2.5 py-1.5 text-xs font-medium text-field-700 bg-field-50 rounded-lg hover:bg-field-100 transition">Edit</button>
-                <button onClick={() => handleDelete(g.id, g.name)} className="px-2.5 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition">Delete</button>
+                <button onClick={() => openEdit(g)} className="px-2.5 py-1.5 text-sm font-medium text-field-700 bg-field-50 rounded-lg hover:bg-field-100 transition">Edit</button>
+                <button onClick={() => handleDelete(g.id, g.name)} className="px-2.5 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition">Delete</button>
               </div>
             </div>
           </Card>
@@ -2377,19 +2529,19 @@ function WorkOrdersView() {
 
         <div className="mb-3">
           <div className="flex items-center justify-between mb-2">
-            <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
+            <label className="text-sm font-semibold text-stone-500 uppercase tracking-wider">
               {form.isTemplate ? "Job Sequence" : "Jobs"}
             </label>
-            <button onClick={addItem} className="text-xs text-field-700 font-semibold hover:underline">+ Add Job Type</button>
+            <button onClick={addItem} className="text-sm text-field-700 font-semibold hover:underline">+ Add Job Type</button>
           </div>
           {form.items.length === 0 && (
-            <div className="text-xs text-stone-400 py-2 text-center border border-dashed border-stone-200 rounded-lg">
+            <div className="text-sm text-stone-400 py-2 text-center border border-dashed border-stone-200 rounded-lg">
               No jobs added yet
             </div>
           )}
           {form.items.map((item, i) => (
             <div key={i} className="flex gap-2 mb-2 items-center">
-              <span className="text-xs text-stone-400 w-5 text-right flex-shrink-0">{i + 1}.</span>
+              <span className="text-sm text-stone-400 w-5 text-right flex-shrink-0">{i + 1}.</span>
               <select className={`${inputClass} flex-1`} value={item.jobTypeId} onChange={e => updateItem(i, "jobTypeId", e.target.value)}>
                 <option value="">Select job type...</option>
                 {jobTypes.map((jt: any) => <option key={jt.id} value={jt.id}>{jt.name}</option>)}
@@ -2410,7 +2562,7 @@ function WorkOrdersView() {
 
       {/* Apply Template Modal */}
       <Modal isOpen={!!applyingTemplate} onClose={() => setApplyingTemplate(null)} title={`Apply: ${applyingTemplate?.name || ""}`}>
-        <div className="mb-4 text-xs text-stone-500">
+        <div className="mb-4 text-sm text-stone-500">
           This will create a new work order with {applyingTemplate?.templateItems?.length || 0} job{applyingTemplate?.templateItems?.length !== 1 ? "s" : ""} for the selected customer.
         </div>
         <FormField label="Customer" required>
@@ -2438,7 +2590,7 @@ function WorkOrdersView() {
         {/* Per-job overrides */}
         {applyingTemplate?.templateItems?.length > 0 && (
           <div className="my-4 p-3 bg-stone-50 rounded-lg border border-stone-200">
-            <label className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3 block">
+            <label className="text-sm font-semibold text-stone-500 uppercase tracking-wider mb-3 block">
               Assign Jobs Individually
             </label>
             <div className="space-y-2">
@@ -2448,7 +2600,7 @@ function WorkOrdersView() {
                 return (
                   <div key={item.id} className="flex gap-2 items-end">
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium text-stone-600 mb-1">{idx + 1}. {item.jobType?.name}</div>
+                      <div className="text-sm font-medium text-stone-600 mb-1">{idx + 1}. {item.jobType?.name}</div>
                       <select
                         className={inputClass}
                         value={assignedUserId}
@@ -2560,7 +2712,7 @@ function MobileNav({ currentView, setView, session }: { currentView: ViewId; set
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 flex lg:hidden z-50" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
       {visibleTabs.map(tab => (
         <button key={tab.id} onClick={() => setView(tab.id)}
-          className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition ${currentView === tab.id ? "text-field-700" : "text-stone-400"}`}>
+          className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium transition ${currentView === tab.id ? "text-field-700" : "text-stone-400"}`}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
             className={currentView === tab.id ? "text-field-700" : "text-stone-400"}>
             <path d={tab.icon} />
@@ -2708,8 +2860,8 @@ export default function FieldFlowApp() {
             <span className="font-bold">FieldFlow</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-stone-500">{session?.user?.name?.split(" ")[0]}</span>
-            <button onClick={() => signOut({ callbackUrl: "/login" })} className="text-xs text-stone-400 hover:text-stone-600 transition">
+            <span className="text-sm text-stone-500">{session?.user?.name?.split(" ")[0]}</span>
+            <button onClick={() => signOut({ callbackUrl: "/login" })} className="text-sm text-stone-400 hover:text-stone-600 transition">
               Sign Out
             </button>
           </div>

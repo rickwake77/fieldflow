@@ -13,6 +13,7 @@ export async function GET() {
       include: {
         customer: { select: { id: true, name: true } },
         items: { include: { job: { select: { id: true, title: true } } } },
+        createdByUser: { select: { id: true, name: true } },
       },
       orderBy: { invoiceDate: "desc" },
     });
@@ -25,8 +26,9 @@ export async function GET() {
 // POST /api/invoices — generate invoice from completed jobs
 export async function POST(request: Request) {
   try {
-    const { response } = await requireAdmin();
+    const { session, response } = await requireAdmin();
     if (response) return response;
+    const createdBy = (session.user as any).id;
 
     const body = await parseBody<{
       customerId: number;
@@ -120,6 +122,7 @@ export async function POST(request: Request) {
         subtotal,
         vat,
         total,
+        createdBy,
         items: {
           create: items.map(({ vatApplicable, ...item }) => ({ ...item, vatApplicable })),
         },

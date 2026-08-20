@@ -155,6 +155,10 @@ export const api = {
     request<any>(`/invoices/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteInvoice: (id: number) =>
     request<any>(`/invoices/${id}`, { method: "DELETE" }),
+  approveInvoice: (id: number) =>
+    request<any>(`/invoices/${id}/approve`, { method: "POST" }),
+  rejectInvoice: (id: number, comment: string) =>
+    request<any>(`/invoices/${id}/reject`, { method: "POST", body: JSON.stringify({ comment }) }),
 
   // Users
   getUsers: () => cachedGet<any[]>("users", "/users"),

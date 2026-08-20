@@ -18,6 +18,8 @@ export async function GET(_request: Request, { params }: Params) {
         items: {
           include: { job: { select: { id: true, title: true, field: { select: { fieldName: true } } } } },
         },
+        createdByUser: { select: { id: true, name: true } },
+        approvedByUser: { select: { id: true, name: true } },
       },
     });
     if (!invoice) return error("Invoice not found", 404);
@@ -34,6 +36,9 @@ export async function PATCH(request: Request, { params }: Params) {
     if (response) return response;
 
     const { id } = await params;
+    const existing = await prisma.invoice.findUnique({ where: { id: Number(id) } });
+    if (!existing) return error("Invoice not found", 404);
+
     const body = await parseBody<Partial<{
       status: string;
       dueDate: string;
@@ -45,6 +50,17 @@ export async function PATCH(request: Request, { params }: Params) {
         jobId?: number | null;
       }>;
     }>>(request);
+
+    // Locked once approved (or beyond) — only Draft invoices can have their
+    // line items rewritten. Use the reject endpoint to send one back to Draft first.
+    if (body.items?.length && existing.status !== "draft") {
+      return error("Approved invoices can't be edited");
+    }
+
+    // The approval step is meaningless if you can skip straight to "sent"
+    if (body.status === "sent" && existing.status !== "approved") {
+      return error("Invoice must be approved before it can be sent");
+    }
 
     const data: Record<string, unknown> = {};
     if (body.status) data.status = body.status;
@@ -78,6 +94,9 @@ export async function PATCH(request: Request, { params }: Params) {
           subtotal,
           vat,
           total,
+          // Editing and saving a rejected invoice counts as resubmitting it —
+          // clear the old comment so the approver can tell it's been addressed
+          rejectionComment: null,
           items: { create: items },
         },
         include: {

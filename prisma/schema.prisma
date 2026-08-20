@@ -46,6 +46,8 @@ model User {
   assignedJobs    Job[]         @relation("AssignedJobs")
   createdJobs     Job[]         @relation("CreatedJobs")
   jobLogs         JobLog[]
+  createdInvoices  Invoice[]    @relation("InvoiceCreatedBy")
+  approvedInvoices Invoice[]    @relation("InvoiceApprovedBy")
 
   @@map("users")
 }
@@ -220,25 +222,32 @@ model JobLog {
 // ============================================================
 
 model Invoice {
-  id            Int           @id @default(autoincrement())
-  customerId    Int           @map("customer_id")
-  invoiceNumber String        @unique @map("invoice_number")
-  invoiceDate   DateTime      @map("invoice_date") @db.Date
-  dueDate       DateTime      @map("due_date") @db.Date
-  status        InvoiceStatus @default(draft)
-  subtotal      Decimal       @db.Decimal(10, 2)
-  vat           Decimal       @db.Decimal(10, 2)
-  total         Decimal       @db.Decimal(10, 2)
-  createdAt     DateTime      @default(now()) @map("created_at")
+  id               Int           @id @default(autoincrement())
+  customerId       Int           @map("customer_id")
+  invoiceNumber    String        @unique @map("invoice_number")
+  invoiceDate      DateTime      @map("invoice_date") @db.Date
+  dueDate          DateTime      @map("due_date") @db.Date
+  status           InvoiceStatus @default(draft)
+  subtotal         Decimal       @db.Decimal(10, 2)
+  vat              Decimal       @db.Decimal(10, 2)
+  total            Decimal       @db.Decimal(10, 2)
+  createdBy        Int?          @map("created_by")
+  approvedBy       Int?          @map("approved_by")
+  approvedAt       DateTime?     @map("approved_at")
+  rejectionComment String?       @map("rejection_comment") @db.Text
+  createdAt        DateTime      @default(now()) @map("created_at")
 
-  customer      Customer      @relation(fields: [customerId], references: [id])
-  items         InvoiceItem[]
+  customer       Customer      @relation(fields: [customerId], references: [id])
+  items          InvoiceItem[]
+  createdByUser  User?         @relation("InvoiceCreatedBy", fields: [createdBy], references: [id])
+  approvedByUser User?         @relation("InvoiceApprovedBy", fields: [approvedBy], references: [id])
 
   @@map("invoices")
 }
 
 enum InvoiceStatus {
   draft
+  approved
   sent
   paid
   overdue

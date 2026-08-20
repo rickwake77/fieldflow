@@ -9,7 +9,7 @@ import OfflineBar from "@/components/OfflineBar";
 // ============================================================
 // TYPES
 // ============================================================
-type ViewId = "dashboard" | "jobs" | "customers" | "invoices" | "machines" | "job-detail" | "team" | "job-types" | "work-orders" | "data-tools";
+type ViewId = "dashboard" | "home" | "jobs" | "customers" | "invoices" | "machines" | "job-detail" | "team" | "job-types" | "work-orders" | "data-tools";
 
 // ============================================================
 // CONTEXT
@@ -204,6 +204,98 @@ function WizardNav({ onBack, onNext, nextLabel = "Next", nextDisabled, backLabel
 // DASHBOARD
 // ============================================================
 const jobStatusOrder: Record<string, number> = { in_progress: 0, scheduled: 1, completed: 2 };
+
+const isToday = (dateStr: string | null) => {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  const today = new Date();
+  return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+};
+
+// ============================================================
+// MOBILE HOME — the phone/tablet landing page: today's jobs at a glance
+// plus big, role-dependent shortcuts, instead of the fuller desktop Dashboard
+// ============================================================
+function MobileHome({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => void; onNavigate?: (view: string, filter?: string) => void }) {
+  const { jobs, invoices, currentUser } = useApp();
+  const role = currentUser?.role;
+  const isAdmin = role === "admin";
+  const canManageJobs = role === "admin" || role === "job_admin";
+
+  const todaysJobs = [...jobs]
+    .filter((j: any) => isToday(j.plannedDate))
+    .sort((a: any, b: any) => (jobStatusOrder[a.status] ?? 3) - (jobStatusOrder[b.status] ?? 3));
+  const pendingApproval = isAdmin ? invoices.filter((i: any) => i.status === "draft").length : 0;
+
+  const todayLabel = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+
+  return (
+    <div>
+      <PageHeader title={`Hi, ${currentUser?.name?.split(" ")[0] || ""}`} subtitle={todayLabel} />
+
+      <div className="sm:grid sm:grid-cols-5 sm:gap-6">
+        {/* Today's jobs */}
+        <div className="sm:col-span-3">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-base font-bold text-stone-900">Today's Jobs</h3>
+            <button onClick={() => onNavigate?.("jobs")} className="text-sm font-semibold text-field-700 hover:underline">View all</button>
+          </div>
+          {todaysJobs.length === 0 ? (
+            <Card className="p-6 text-center">
+              <div className="text-sm text-stone-400">No jobs scheduled for today</div>
+            </Card>
+          ) : (
+            <div className="space-y-2.5">
+              {todaysJobs.map((job: any) => (
+                <Card key={job.id} className="p-4" onClick={() => onSelectJob?.(job)}>
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-base truncate">{job.title}</div>
+                      <div className="text-sm text-stone-500 truncate">
+                        {job.customer?.name}{job.field?.fieldName ? ` · ${job.field.fieldName}` : ""}
+                        {canManageJobs && job.assignedTo?.name ? ` · ${job.assignedTo.name}` : ""}
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0"><StatusBadge status={job.status} /></div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Big shortcuts */}
+        <div className="sm:col-span-2 flex flex-col gap-3 mt-6 sm:mt-0">
+          {canManageJobs && (
+            <button
+              onClick={() => onNavigate?.("jobs", "create")}
+              className="w-full py-6 rounded-2xl text-lg font-bold text-white bg-field-700 hover:bg-field-800 shadow-sm transition text-left px-5"
+            >
+              + Create a New Job
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => onNavigate?.("invoices", "draft")}
+              className="w-full py-6 rounded-2xl text-lg font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm transition text-left px-5"
+            >
+              Invoices to Approve
+              {pendingApproval > 0 && (
+                <span className="block text-sm font-semibold text-indigo-100 mt-1">{pendingApproval} waiting</span>
+              )}
+            </button>
+          )}
+          <button
+            onClick={() => onNavigate?.("dashboard")}
+            className="w-full py-6 rounded-2xl text-lg font-bold text-field-700 bg-field-200 hover:bg-field-300 shadow-sm transition text-left px-5"
+          >
+            Dashboard
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => void; onNavigate?: (view: string, filter?: string) => void }) {
   const { jobs, invoices, users, customers, currentUser, refresh } = useApp();
@@ -416,10 +508,11 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
 // JOBS
 // ============================================================
 function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => void; initialFilter?: string }) {
-  const { jobs, customers, fields, jobTypes, users, machines, currentUser, refresh } = useApp();
+  const { jobs, customers, fields, jobTypes, users, machines, jobGroups, currentUser, refresh } = useApp();
   const canManageJobs = currentUser?.role === "admin" || currentUser?.role === "job_admin";
-  const [filter, setFilter] = useState(initialFilter || "all");
-  const [showCreate, setShowCreate] = useState(false);
+  // "create" is a signal from MobileHome's shortcut button to open the modal directly, not a real status filter
+  const [filter, setFilter] = useState(initialFilter && initialFilter !== "create" ? initialFilter : "all");
+  const [showCreate, setShowCreate] = useState(initialFilter === "create" && canManageJobs);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
     customerId: "", fieldId: "", jobTypeId: "", assignedToUserId: "",
@@ -430,6 +523,17 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
   const [newField, setNewField] = useState({ fieldName: "", hectares: "" });
   // Title auto-fills from Job Type / Customer / Field until the user types their own
   const [titleAuto, setTitleAuto] = useState(true);
+
+  // Work Package mode — creates several jobs at once, optionally seeded from a saved template
+  const [createMode, setCreateMode] = useState<"single" | "package">("single");
+  const blankPackageForm = () => ({
+    name: "", customerId: "", templateId: "",
+    fieldId: "", assignedToUserId: "", plannedDate: "",
+    items: [] as Array<{ jobTypeId: string; notes: string }>,
+  });
+  const [packageForm, setPackageForm] = useState(blankPackageForm());
+  const [packageSaving, setPackageSaving] = useState(false);
+  const templates = jobGroups.filter((g: any) => g.isTemplate);
 
   const filtered = filter === "all" ? jobs : (filter === "active" ? jobs.filter((j: any) => j.status === "scheduled" || j.status === "in_progress") : jobs.filter((j: any) => j.status === filter));
   const assignableUsers = users.filter((u: any) => u.active);
@@ -496,6 +600,51 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
     setSavingField(false);
   };
 
+  const closeCreateModal = () => {
+    setShowCreate(false);
+    setCreateMode("single");
+    setPackageForm(blankPackageForm());
+  };
+
+  // Picking a template seeds the item list client-side — no server round-trip needed
+  const handleTemplateSelect = (templateId: string) => {
+    const template = templates.find((t: any) => String(t.id) === templateId);
+    setPackageForm(f => ({
+      ...f,
+      templateId,
+      name: template ? template.name : f.name,
+      items: template
+        ? (template.templateItems || []).map((item: any) => ({ jobTypeId: String(item.jobTypeId), notes: item.notes || "" }))
+        : f.items,
+    }));
+  };
+
+  const addPackageItem = () => setPackageForm(f => ({ ...f, items: [...f.items, { jobTypeId: "", notes: "" }] }));
+  const removePackageItem = (i: number) => setPackageForm(f => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }));
+  const updatePackageItem = (i: number, field: string, value: string) =>
+    setPackageForm(f => ({ ...f, items: f.items.map((item, idx) => idx === i ? { ...item, [field]: value } : item) }));
+
+  const validPackageItems = packageForm.items.filter(item => item.jobTypeId);
+
+  const handleCreatePackage = async () => {
+    setPackageSaving(true);
+    try {
+      await api.createWorkPackage({
+        name: packageForm.name || undefined,
+        customerId: Number(packageForm.customerId),
+        fieldId: packageForm.fieldId ? Number(packageForm.fieldId) : undefined,
+        assignedToUserId: packageForm.assignedToUserId ? Number(packageForm.assignedToUserId) : undefined,
+        plannedDate: packageForm.plannedDate || undefined,
+        items: validPackageItems.map(item => ({ jobTypeId: Number(item.jobTypeId), notes: item.notes || undefined })),
+      });
+      await refresh();
+      closeCreateModal();
+    } catch (err: any) {
+      alert("Error creating work package: " + err.message);
+    }
+    setPackageSaving(false);
+  };
+
   return (
     <div>
       <PageHeader
@@ -559,82 +708,163 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
       </div>
 
       {/* Create Job Modal */}
-      <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="Create New Job">
-        <FormField label="Customer" required>
-          <select className={inputClass} value={form.customerId} onChange={e => {
-            setForm(f => ({ ...f, customerId: e.target.value, fieldId: "" }));
-            setAddingField(false);
-            setNewField({ fieldName: "", hectares: "" });
-          }}>
-            <option value="">Select customer...</option>
-            {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </FormField>
-        <FormField label="Job Type" required>
-          <select className={inputClass} value={form.jobTypeId} onChange={e => handleJobTypeChange(e.target.value)}>
-            <option value="">Select type...</option>
-            {jobTypes.map((jt: any) => <option key={jt.id} value={jt.id}>{jt.name}</option>)}
-          </select>
-        </FormField>
-        <FormField label="Field">
-          {addingField ? (
-            <div className="border border-stone-200 rounded-lg p-3 bg-stone-50 space-y-2">
-              <input className={inputClass} placeholder="Field name (e.g. Top Field)" autoFocus value={newField.fieldName} onChange={e => setNewField(f => ({ ...f, fieldName: e.target.value }))} />
-              <input className={inputClass} type="number" step="0.1" placeholder="Acres" value={newField.hectares} onChange={e => setNewField(f => ({ ...f, hectares: e.target.value }))} />
-              <div className="flex gap-2">
-                <button type="button" onClick={() => { setAddingField(false); setNewField({ fieldName: "", hectares: "" }); }}
-                  className="flex-1 px-3 py-2.5 rounded-lg text-sm font-semibold text-stone-500 bg-white border border-stone-200 hover:bg-stone-100 transition">
-                  Cancel
-                </button>
-                <button type="button" onClick={handleAddField} disabled={savingField || !newField.fieldName}
-                  className="flex-[2] px-3 py-2.5 rounded-lg text-sm font-semibold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition">
-                  {savingField ? "Saving..." : "Save Field"}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <select className={inputClass} value={form.fieldId} onChange={e => setForm(f => ({ ...f, fieldId: e.target.value }))} disabled={!form.customerId}>
-                <option value="">{form.customerId ? "None / not applicable" : "Select customer first"}</option>
-                {customerFields.map((f: any) => <option key={f.id} value={f.id}>{f.fieldName} ({Number(f.hectares)} ac)</option>)}
+      <Modal isOpen={showCreate} onClose={closeCreateModal} title={createMode === "package" ? "Create Work Package" : "Create New Job"}>
+        <div className="flex bg-stone-100 rounded-lg p-1 mb-4">
+          <button type="button" onClick={() => setCreateMode("single")}
+            className={`flex-1 py-2 rounded-md text-sm font-semibold transition ${createMode === "single" ? "bg-white text-field-700 shadow-sm" : "text-stone-500"}`}>
+            Single Job
+          </button>
+          <button type="button" onClick={() => setCreateMode("package")}
+            className={`flex-1 py-2 rounded-md text-sm font-semibold transition ${createMode === "package" ? "bg-white text-field-700 shadow-sm" : "text-stone-500"}`}>
+            Work Package
+          </button>
+        </div>
+
+        {createMode === "single" ? (
+          <>
+            <FormField label="Customer" required>
+              <select className={inputClass} value={form.customerId} onChange={e => {
+                setForm(f => ({ ...f, customerId: e.target.value, fieldId: "" }));
+                setAddingField(false);
+                setNewField({ fieldName: "", hectares: "" });
+              }}>
+                <option value="">Select customer...</option>
+                {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              {form.customerId && (
-                <button type="button" onClick={() => setAddingField(true)} className="mt-1.5 text-sm font-semibold text-field-700 hover:underline">
-                  + Add a new field for this customer
-                </button>
+            </FormField>
+            <FormField label="Job Type" required>
+              <select className={inputClass} value={form.jobTypeId} onChange={e => handleJobTypeChange(e.target.value)}>
+                <option value="">Select type...</option>
+                {jobTypes.map((jt: any) => <option key={jt.id} value={jt.id}>{jt.name}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Field">
+              {addingField ? (
+                <div className="border border-stone-200 rounded-lg p-3 bg-stone-50 space-y-2">
+                  <input className={inputClass} placeholder="Field name (e.g. Top Field)" autoFocus value={newField.fieldName} onChange={e => setNewField(f => ({ ...f, fieldName: e.target.value }))} />
+                  <input className={inputClass} type="number" step="0.1" placeholder="Acres" value={newField.hectares} onChange={e => setNewField(f => ({ ...f, hectares: e.target.value }))} />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => { setAddingField(false); setNewField({ fieldName: "", hectares: "" }); }}
+                      className="flex-1 px-3 py-2.5 rounded-lg text-sm font-semibold text-stone-500 bg-white border border-stone-200 hover:bg-stone-100 transition">
+                      Cancel
+                    </button>
+                    <button type="button" onClick={handleAddField} disabled={savingField || !newField.fieldName}
+                      className="flex-[2] px-3 py-2.5 rounded-lg text-sm font-semibold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                      {savingField ? "Saving..." : "Save Field"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <select className={inputClass} value={form.fieldId} onChange={e => setForm(f => ({ ...f, fieldId: e.target.value }))} disabled={!form.customerId}>
+                    <option value="">{form.customerId ? "None / not applicable" : "Select customer first"}</option>
+                    {customerFields.map((f: any) => <option key={f.id} value={f.id}>{f.fieldName} ({Number(f.hectares)} ac)</option>)}
+                  </select>
+                  {form.customerId && (
+                    <button type="button" onClick={() => setAddingField(true)} className="mt-1.5 text-sm font-semibold text-field-700 hover:underline">
+                      + Add a new field for this customer
+                    </button>
+                  )}
+                </>
               )}
-            </>
-          )}
-        </FormField>
-        <FormField label="Assign To">
-          <select className={inputClass} value={form.assignedToUserId} onChange={e => setForm(f => ({ ...f, assignedToUserId: e.target.value }))}>
-            <option value="">Unassigned</option>
-            {assignableUsers.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
-        </FormField>
-        <FormField label="Title" required>
-          <input className={inputClass} placeholder="e.g. Plough Top Field" value={form.title} onChange={e => {
-            setForm(f => ({ ...f, title: e.target.value }));
-            setTitleAuto(e.target.value.trim() === "");
-          }} />
-        </FormField>
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label="Planned Date">
-            <input className={inputClass} type="date" value={form.plannedDate} onChange={e => setForm(f => ({ ...f, plannedDate: e.target.value }))} />
-          </FormField>
-          <FormField label={`Estimated Qty${form.unitType ? ` (${form.unitType}s)` : ""}`}>
-            <input className={inputClass} type="number" step="0.25" placeholder="0" value={form.estimatedQuantity} onChange={e => setForm(f => ({ ...f, estimatedQuantity: e.target.value }))} />
-          </FormField>
-        </div>
-        <FormField label="Description">
-          <textarea className={inputClass} placeholder="Additional notes..." rows={3} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
-        </FormField>
-        <div className="flex gap-2 mt-2">
-          <Btn variant="ghost" className="flex-1" onClick={() => setShowCreate(false)}>Cancel</Btn>
-          <Btn className="flex-[2]" onClick={handleCreate} disabled={creating || !form.customerId || !form.jobTypeId || !form.title}>
-            {creating ? "Creating..." : "Create Job"}
-          </Btn>
-        </div>
+            </FormField>
+            <FormField label="Assign To">
+              <select className={inputClass} value={form.assignedToUserId} onChange={e => setForm(f => ({ ...f, assignedToUserId: e.target.value }))}>
+                <option value="">Unassigned</option>
+                {assignableUsers.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Title" required>
+              <input className={inputClass} placeholder="e.g. Plough Top Field" value={form.title} onChange={e => {
+                setForm(f => ({ ...f, title: e.target.value }));
+                setTitleAuto(e.target.value.trim() === "");
+              }} />
+            </FormField>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Planned Date">
+                <input className={inputClass} type="date" value={form.plannedDate} onChange={e => setForm(f => ({ ...f, plannedDate: e.target.value }))} />
+              </FormField>
+              <FormField label={`Estimated Qty${form.unitType ? ` (${form.unitType}s)` : ""}`}>
+                <input className={inputClass} type="number" step="0.25" placeholder="0" value={form.estimatedQuantity} onChange={e => setForm(f => ({ ...f, estimatedQuantity: e.target.value }))} />
+              </FormField>
+            </div>
+            <FormField label="Description">
+              <textarea className={inputClass} placeholder="Additional notes..." rows={3} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+            </FormField>
+            <div className="flex gap-2 mt-2">
+              <Btn variant="ghost" className="flex-1" onClick={closeCreateModal}>Cancel</Btn>
+              <Btn className="flex-[2]" onClick={handleCreate} disabled={creating || !form.customerId || !form.jobTypeId || !form.title}>
+                {creating ? "Creating..." : "Create Job"}
+              </Btn>
+            </div>
+          </>
+        ) : (
+          <>
+            <FormField label="Package Name">
+              <input className={inputClass} placeholder={packageForm.customerId ? `${customers.find((c: any) => String(c.id) === packageForm.customerId)?.name || ""} - ${validPackageItems.length || 0} jobs` : "e.g. Autumn Ploughing"}
+                value={packageForm.name} onChange={e => setPackageForm(f => ({ ...f, name: e.target.value }))} />
+            </FormField>
+            <FormField label="Customer" required>
+              <select className={inputClass} value={packageForm.customerId} onChange={e => setPackageForm(f => ({ ...f, customerId: e.target.value, fieldId: "" }))}>
+                <option value="">Select customer...</option>
+                {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Start from a template">
+              <select className={inputClass} value={packageForm.templateId} onChange={e => handleTemplateSelect(e.target.value)}>
+                <option value="">None — build manually</option>
+                {templates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </FormField>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Default Field">
+                <select className={inputClass} value={packageForm.fieldId} onChange={e => setPackageForm(f => ({ ...f, fieldId: e.target.value }))} disabled={!packageForm.customerId}>
+                  <option value="">{packageForm.customerId ? "None / varies" : "Select customer first"}</option>
+                  {fields.filter((f: any) => f.customer?.id === Number(packageForm.customerId)).map((f: any) => <option key={f.id} value={f.id}>{f.fieldName}</option>)}
+                </select>
+              </FormField>
+              <FormField label="Default Planned Date">
+                <input className={inputClass} type="date" value={packageForm.plannedDate} onChange={e => setPackageForm(f => ({ ...f, plannedDate: e.target.value }))} />
+              </FormField>
+            </div>
+            <FormField label="Default Assign To">
+              <select className={inputClass} value={packageForm.assignedToUserId} onChange={e => setPackageForm(f => ({ ...f, assignedToUserId: e.target.value }))}>
+                <option value="">Unassigned</option>
+                {assignableUsers.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </FormField>
+
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-semibold text-stone-500 uppercase tracking-wider">Jobs in this package</label>
+                <button type="button" onClick={addPackageItem} className="text-sm text-field-700 font-semibold hover:underline">+ Add Job Type</button>
+              </div>
+              {packageForm.items.length === 0 && (
+                <div className="text-sm text-stone-400 py-2 text-center border border-dashed border-stone-200 rounded-lg">
+                  No jobs added yet — pick a template above or add one manually
+                </div>
+              )}
+              {packageForm.items.map((item, i) => (
+                <div key={i} className="flex gap-2 mb-2 items-center">
+                  <span className="text-sm text-stone-400 w-5 text-right flex-shrink-0">{i + 1}.</span>
+                  <select className={`${inputClass} flex-1`} value={item.jobTypeId} onChange={e => updatePackageItem(i, "jobTypeId", e.target.value)}>
+                    <option value="">Select job type...</option>
+                    {jobTypes.map((jt: any) => <option key={jt.id} value={jt.id}>{jt.name}</option>)}
+                  </select>
+                  <input className={`${inputClass} flex-1`} placeholder="Notes (optional)" value={item.notes} onChange={e => updatePackageItem(i, "notes", e.target.value)} />
+                  <button type="button" onClick={() => removePackageItem(i)} className="text-stone-400 hover:text-red-500 flex-shrink-0">✕</button>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2 mt-2">
+              <Btn variant="ghost" className="flex-1" onClick={closeCreateModal}>Cancel</Btn>
+              <Btn className="flex-[2]" onClick={handleCreatePackage} disabled={packageSaving || !packageForm.customerId || validPackageItems.length === 0}>
+                {packageSaving ? "Creating..." : `Create Work Package (${validPackageItems.length} job${validPackageItems.length === 1 ? "" : "s"})`}
+              </Btn>
+            </div>
+          </>
+        )}
       </Modal>
     </div>
   );
@@ -2701,7 +2931,7 @@ function MobileNav({ currentView, setView, session }: { currentView: ViewId; set
   const isAdmin = role === "admin";
   const canManageJobs = role === "admin" || role === "job_admin";
   const tabs: { id: ViewId; label: string; icon: string; show?: boolean }[] = [
-    { id: "dashboard", label: "Home", icon: "M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z", show: true },
+    { id: "home", label: "Home", icon: "M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z", show: true },
     { id: "jobs", label: "Jobs", icon: "M2 7h20v14H2zM16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16", show: true },
     { id: "customers", label: "Customers", icon: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8", show: canManageJobs },
     { id: "invoices", label: "Invoices", icon: "M1 4h22v16H1zM1 10h22", show: isAdmin },
@@ -2730,7 +2960,10 @@ function MobileNav({ currentView, setView, session }: { currentView: ViewId; set
 export default function FieldFlowApp() {
   const { data: session, status: sessionStatus } = useSession();
   const router = useRouter();
-  const [currentView, setCurrentView] = useState<ViewId>("dashboard");
+  // Mobile lands on the streamlined Home page; desktop keeps the fuller Dashboard
+  const [currentView, setCurrentView] = useState<ViewId>(() =>
+    typeof window !== "undefined" && window.innerWidth < 1024 ? "home" : "dashboard"
+  );
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -2794,6 +3027,7 @@ export default function FieldFlowApp() {
 
   const handleBackToJobs = () => {
     setSelectedJobId(null);
+    setViewFilter(undefined);
     setCurrentView("jobs");
   };
 
@@ -2831,6 +3065,7 @@ export default function FieldFlowApp() {
     const dashboardProps = { onSelectJob: handleSelectJob, onNavigate: handleNavigateWithFilter };
     switch (currentView) {
       case "dashboard": return <Dashboard {...dashboardProps} />;
+      case "home": return <MobileHome {...dashboardProps} />;
       case "jobs": return <JobsView onSelectJob={handleSelectJob} initialFilter={viewFilter} />;
       case "job-detail": return selectedJobId ? <JobDetail jobId={selectedJobId} onBack={handleBackToJobs} /> : <JobsView onSelectJob={handleSelectJob} />;
       case "customers": return canManageJobs ? <CustomersView /> : <Dashboard {...dashboardProps} />;

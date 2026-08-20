@@ -193,4 +193,6 @@ export const api = {
     request<any>(`/job-groups/${id}`, { method: "DELETE" }),
   applyTemplate: (id: number, data: any) =>
     request<any>(`/job-groups/${id}/apply`, { method: "POST", body: JSON.stringify(data) }),
+  createWorkPackage: (data: any) =>
+    request<any>("/job-groups/create-with-jobs", { method: "POST", body: JSON.stringify(data) }),
 };

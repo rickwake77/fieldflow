@@ -51,7 +51,7 @@ export async function POST(request: Request) {
       where: { id: { in: body.jobIds }, customerId: body.customerId },
       include: {
         jobType: true,
-        field: true,
+        jobFields: { include: { field: true } },
         jobLogs: true,
       },
     });
@@ -69,9 +69,10 @@ export async function POST(request: Request) {
       const unitPrice = Number(job.jobType.defaultRate);
       const totalPrice = Math.round(quantity * unitPrice * 100) / 100;
 
+      const fieldNames = job.jobFields.map((jf) => jf.field.fieldName).join(", ");
       return {
         jobId: job.id,
-        description: `${job.jobType.name}${job.field ? ` — ${job.field.fieldName}` : ""} (${quantity} ${job.jobType.billingUnit}s @ £${unitPrice}/${job.jobType.billingUnit})`,
+        description: `${job.jobType.name}${fieldNames ? ` — ${fieldNames}` : ""} (${quantity} ${job.jobType.billingUnit}s @ £${unitPrice}/${job.jobType.billingUnit})`,
         quantity,
         unitPrice,
         totalPrice,

@@ -16,10 +16,10 @@ export async function POST(request: Request, { params }: Params) {
     const body = await parseBody<{
       customerId: number;
       assignedToUserId?: number;
-      fieldId?: number;
+      fieldIds?: number[];
       plannedDate?: string;
       // Optional per-item overrides: keyed by jobTypeId
-      overrides?: Record<string, { fieldId?: number; plannedDate?: string; assignedToUserId?: number }>;
+      overrides?: Record<string, { fieldIds?: number[]; plannedDate?: string; assignedToUserId?: number }>;
     }>(request);
 
     if (!body.customerId) {
@@ -53,10 +53,10 @@ export async function POST(request: Request, { params }: Params) {
         jobs: {
           create: template.templateItems.map((item) => {
             const override = body.overrides?.[String(item.jobTypeId)] ?? {};
+            const fieldIds = override.fieldIds ?? body.fieldIds ?? [];
             return {
               customerId: body.customerId,
               jobTypeId: item.jobTypeId,
-              fieldId: override.fieldId ?? body.fieldId ?? null,
               assignedToUserId: override.assignedToUserId ?? body.assignedToUserId ?? null,
               plannedDate: override.plannedDate
                 ? new Date(override.plannedDate)
@@ -66,7 +66,8 @@ export async function POST(request: Request, { params }: Params) {
               title: item.jobType.name,
               description: item.notes ?? null,
               unitType: item.jobType.billingUnit,
-              status: "scheduled",
+              status: "scheduled" as const,
+              jobFields: fieldIds.length ? { create: fieldIds.map((fieldId) => ({ fieldId })) } : undefined,
             };
           }),
         },
@@ -76,7 +77,7 @@ export async function POST(request: Request, { params }: Params) {
         jobs: {
           include: {
             jobType: { select: { id: true, name: true } },
-            field: { select: { id: true, fieldName: true } },
+            jobFields: { include: { field: { select: { id: true, fieldName: true } } } },
           },
         },
       },

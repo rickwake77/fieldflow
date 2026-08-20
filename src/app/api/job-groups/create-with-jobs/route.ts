@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     const body = await parseBody<{
       name?: string;
       customerId: number;
-      fieldId?: number;
+      fieldIds?: number[];
       assignedToUserId?: number;
       plannedDate?: string;
       items: Array<{ jobTypeId: number; notes?: string }>;
@@ -59,13 +59,15 @@ export async function POST(request: Request) {
             return {
               customerId: body.customerId,
               jobTypeId: item.jobTypeId,
-              fieldId: body.fieldId ?? null,
               assignedToUserId: body.assignedToUserId ?? null,
               plannedDate,
               title: jt.name,
               description: item.notes || null,
               unitType: jt.billingUnit,
               status: "scheduled" as const,
+              jobFields: body.fieldIds?.length
+                ? { create: body.fieldIds.map((fieldId) => ({ fieldId })) }
+                : undefined,
             };
           }),
         },
@@ -75,7 +77,7 @@ export async function POST(request: Request) {
         jobs: {
           include: {
             jobType: { select: { id: true, name: true } },
-            field: { select: { id: true, fieldName: true } },
+            jobFields: { include: { field: { select: { id: true, fieldName: true } } } },
             assignedTo: { select: { id: true, name: true } },
           },
         },

@@ -69,6 +69,20 @@ const fmtDate = (d: string | null) => {
   return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 };
 
+// Today's date as a local YYYY-MM-DD string, for pre-filling <input type="date">
+// defaults (an empty date input renders shorter on mobile, so job-creation
+// forms default to today rather than starting blank)
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+// A job can span multiple fields now — join their names for display wherever a single field name used to show
+const fieldNames = (job: any) => (job.jobFields || []).map((jf: any) => jf.field?.fieldName).filter(Boolean).join(", ");
+
+// A work log can involve multiple machines now — join their names for display wherever a single machine name used to show
+const logMachineNames = (log: any) => (log.logMachines || []).map((lm: any) => lm.machine?.name).filter(Boolean).join(", ");
+
 const fmtCurrency = (n: number) => `£${Number(n).toFixed(2)}`;
 
 const roleLabel = (r: string) => ({ admin: "Admin", job_admin: "Job Admin", contractor: "Contractor" }[r] || r);
@@ -200,6 +214,537 @@ function WizardNav({ onBack, onNext, nextLabel = "Next", nextDisabled, backLabel
   );
 }
 
+// Bigger, bolder input style for step-by-step wizards (vs. the standard modal inputClass)
+const wizardInputClass = "w-full px-4 py-4 border-2 border-stone-300 rounded-2xl text-base font-semibold bg-white focus:outline-none focus:border-field-500 transition";
+
+// Big tappable card list for single/multi-select wizard steps (e.g. "Which machine?", "Which customer?")
+function WizardCardList({ items, isSelected, onToggle, renderMain, renderSub, showCheck, emptyText, className }: {
+  items: any[]; isSelected: (item: any) => boolean; onToggle: (item: any) => void;
+  renderMain: (item: any) => ReactNode; renderSub?: (item: any) => ReactNode;
+  showCheck?: boolean; emptyText?: string; className?: string;
+}) {
+  if (items.length === 0) {
+    return <div className="text-sm text-stone-400 py-3 text-center border border-dashed border-stone-200 rounded-xl">{emptyText || "Nothing to show"}</div>;
+  }
+  return (
+    <div className={className || "space-y-2.5 max-h-[50vh] overflow-y-auto"}>
+      {items.map((item, i) => {
+        const selected = isSelected(item);
+        return (
+          <button
+            key={item.id ?? i}
+            type="button"
+            onClick={() => onToggle(item)}
+            className={`w-full text-left px-4 py-4 rounded-2xl border-2 transition flex items-center justify-between gap-3 ${selected ? "border-field-600 bg-field-50" : "border-stone-200 bg-white hover:border-stone-300"}`}
+          >
+            <div className="min-w-0">
+              <div className="font-bold text-base truncate">{renderMain(item)}</div>
+              {renderSub && <div className="text-sm text-stone-500 truncate">{renderSub(item)}</div>}
+            </div>
+            {showCheck && selected && (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-field-600 flex-shrink-0"><path d="M20 6L9 17l-5-5" /></svg>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================
+// CREATE JOB WIZARD — big-button step flow for creating a Single Job or a
+// Work Package, in the style of the Log Work wizard. Owns all its own form
+// state; JobsView just controls whether it's open.
+// ============================================================
+function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean; onClose: () => void; skipModeSelect?: boolean }) {
+  const { customers, fields, jobTypes, users, jobGroups, refresh } = useApp();
+  const assignableUsers = users.filter((u: any) => u.active);
+  const templates = jobGroups.filter((g: any) => g.isTemplate);
+
+  const [createMode, setCreateMode] = useState<"single" | "package">("single");
+  const [wizardStep, setWizardStep] = useState(0);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [packageSaving, setPackageSaving] = useState(false);
+
+  const blankForm = () => ({
+    customerId: "", fieldIds: [] as string[], jobTypeId: "", assignedToUserId: "",
+    title: "", description: "", plannedDate: todayStr(), estimatedQuantity: "", unitType: "",
+  });
+  const [form, setForm] = useState(blankForm());
+  const [titleAuto, setTitleAuto] = useState(true);
+  const [addingField, setAddingField] = useState(false);
+  const [savingField, setSavingField] = useState(false);
+  const [newField, setNewField] = useState({ fieldName: "", hectares: "" });
+
+  const blankPackageForm = () => ({
+    name: "", customerId: "", templateId: "",
+    fieldIds: [] as string[], assignedToUserId: "", plannedDate: todayStr(),
+    items: [] as Array<{ jobTypeId: string; notes: string }>,
+  });
+  const [packageForm, setPackageForm] = useState(blankPackageForm());
+
+  // Reset everything fresh each time the wizard is opened
+  useEffect(() => {
+    if (!isOpen) return;
+    setCreateMode("single");
+    setWizardStep(skipModeSelect ? 1 : 0);
+    setCustomerSearch("");
+    setForm(blankForm());
+    setTitleAuto(true);
+    setAddingField(false);
+    setNewField({ fieldName: "", hectares: "" });
+    setPackageForm(blankPackageForm());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  // Auto-generate the title from Job Type / Customer / Field(s) until the user types their own
+  useEffect(() => {
+    if (!titleAuto) return;
+    const jt = jobTypes.find((j: any) => j.id === Number(form.jobTypeId));
+    const cust = customers.find((c: any) => c.id === Number(form.customerId));
+    if (!jt || !cust) return;
+    let fieldSuffix = "";
+    if (form.fieldIds.length === 1) {
+      const fld = fields.find((f: any) => f.id === Number(form.fieldIds[0]));
+      if (fld) fieldSuffix = ` - ${fld.fieldName}`;
+    } else if (form.fieldIds.length > 1) {
+      fieldSuffix = " - Multiple";
+    }
+    const generated = `${jt.name} - ${cust.name}${fieldSuffix}`;
+    setForm(f => (f.title === generated ? f : { ...f, title: generated }));
+  }, [form.jobTypeId, form.customerId, form.fieldIds, jobTypes, customers, fields, titleAuto]);
+
+  const handleJobTypeChange = (jobTypeId: string) => {
+    const jt = jobTypes.find((j: any) => j.id === Number(jobTypeId));
+    setForm(f => ({ ...f, jobTypeId, unitType: jt?.billingUnit || "" }));
+  };
+
+  const handleClose = () => {
+    onClose();
+  };
+
+  const handleCreate = async () => {
+    setCreating(true);
+    try {
+      await api.createJob({
+        customerId: Number(form.customerId),
+        fieldIds: form.fieldIds.map(Number),
+        jobTypeId: Number(form.jobTypeId),
+        assignedToUserId: form.assignedToUserId ? Number(form.assignedToUserId) : undefined,
+        title: form.title,
+        description: form.description || undefined,
+        plannedDate: form.plannedDate || undefined,
+        estimatedQuantity: form.estimatedQuantity ? Number(form.estimatedQuantity) : undefined,
+        unitType: form.unitType || undefined,
+      });
+      await refresh();
+      handleClose();
+    } catch (err: any) {
+      alert("Error creating job: " + err.message);
+    }
+    setCreating(false);
+  };
+
+  // Adds a field to the selected customer on the fly, so the database builds up as jobs are created
+  const handleAddField = async () => {
+    setSavingField(true);
+    try {
+      const created = await api.createField({
+        customerId: Number(form.customerId),
+        fieldName: newField.fieldName,
+        hectares: Number(newField.hectares) || 0,
+      });
+      await refresh();
+      setForm(f => ({ ...f, fieldIds: [...f.fieldIds, String(created.id)] }));
+      setAddingField(false);
+      setNewField({ fieldName: "", hectares: "" });
+    } catch (err: any) {
+      alert("Error adding field: " + err.message);
+    }
+    setSavingField(false);
+  };
+
+  // Picking a template seeds the item list client-side — no server round-trip needed
+  const handleTemplateSelect = (templateId: string) => {
+    const template = templates.find((t: any) => String(t.id) === templateId);
+    setPackageForm(f => ({
+      ...f,
+      templateId,
+      name: template ? template.name : f.name,
+      items: template
+        ? (template.templateItems || []).map((item: any) => ({ jobTypeId: String(item.jobTypeId), notes: item.notes || "" }))
+        : f.items,
+    }));
+  };
+
+  const addPackageItem = () => setPackageForm(f => ({ ...f, items: [...f.items, { jobTypeId: "", notes: "" }] }));
+  const removePackageItem = (i: number) => setPackageForm(f => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }));
+  const updatePackageItem = (i: number, field: string, value: string) =>
+    setPackageForm(f => ({ ...f, items: f.items.map((item, idx) => idx === i ? { ...item, [field]: value } : item) }));
+
+  const validPackageItems = packageForm.items.filter(item => item.jobTypeId);
+
+  const handleCreatePackage = async () => {
+    setPackageSaving(true);
+    try {
+      await api.createWorkPackage({
+        name: packageForm.name || undefined,
+        customerId: Number(packageForm.customerId),
+        fieldIds: packageForm.fieldIds.map(Number),
+        assignedToUserId: packageForm.assignedToUserId ? Number(packageForm.assignedToUserId) : undefined,
+        plannedDate: packageForm.plannedDate || undefined,
+        items: validPackageItems.map(item => ({ jobTypeId: Number(item.jobTypeId), notes: item.notes || undefined })),
+      });
+      await refresh();
+      handleClose();
+    } catch (err: any) {
+      alert("Error creating work package: " + err.message);
+    }
+    setPackageSaving(false);
+  };
+
+  if (!isOpen) return null;
+
+  const filteredCustomers = customerSearch.trim()
+    ? customers.filter((c: any) => c.name.toLowerCase().includes(customerSearch.trim().toLowerCase()))
+    : customers;
+  const customerFields = form.customerId ? fields.filter((f: any) => f.customer?.id === Number(form.customerId)) : [];
+  const packageCustomerFields = packageForm.customerId ? fields.filter((f: any) => f.customer?.id === Number(packageForm.customerId)) : [];
+  const selectedCustomer = customers.find((c: any) => String(c.id) === form.customerId);
+  const selectedJobType = jobTypes.find((jt: any) => String(jt.id) === form.jobTypeId);
+  const selectedPackageCustomer = customers.find((c: any) => String(c.id) === packageForm.customerId);
+  const totalSteps = createMode === "single" ? 4 : 5;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center" onClick={handleClose}>
+      <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl overflow-y-auto sm:max-h-[90vh] p-6 animate-[slideUp_0.3s_ease-out]" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-2">
+          <div className="text-sm font-bold uppercase tracking-wider text-stone-400">
+            {wizardStep === 0 ? "Create" : `Step ${wizardStep} of ${totalSteps}`}
+          </div>
+          <button onClick={handleClose} className="text-stone-400 hover:text-stone-600 p-2 -mr-2">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        {/* Step 0: choose Single Job vs Work Package */}
+        {wizardStep === 0 && (
+          <>
+            <h2 className="text-xl font-bold mb-5">What would you like to create?</h2>
+            <div className="space-y-2.5">
+              <button type="button" onClick={() => setCreateMode("single")}
+                className={`w-full text-left px-4 py-4 rounded-2xl border-2 transition ${createMode === "single" ? "border-field-600 bg-field-50" : "border-stone-200 bg-white hover:border-stone-300"}`}>
+                <div className="font-bold text-base">Single Job</div>
+                <div className="text-sm text-stone-500">One job for one customer</div>
+              </button>
+              <button type="button" onClick={() => setCreateMode("package")}
+                className={`w-full text-left px-4 py-4 rounded-2xl border-2 transition ${createMode === "package" ? "border-field-600 bg-field-50" : "border-stone-200 bg-white hover:border-stone-300"}`}>
+                <div className="font-bold text-base">Work Package</div>
+                <div className="text-sm text-stone-500">Several jobs at once, optionally from a template</div>
+              </button>
+            </div>
+            <WizardNav onNext={() => setWizardStep(1)} />
+          </>
+        )}
+
+        {/* ══════════════ SINGLE JOB FLOW ══════════════ */}
+
+        {createMode === "single" && wizardStep === 1 && (
+          <>
+            <h2 className="text-xl font-bold mb-1">Customer & job type</h2>
+            <p className="text-sm text-stone-500 mb-4">Who's this job for, and what kind of job is it?</p>
+
+            <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">Customer</div>
+            {customers.length > 6 && (
+              <input className={`${inputClass} mb-2`} placeholder="Search customers..." value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} />
+            )}
+            <WizardCardList
+              className="space-y-2 max-h-[24vh] overflow-y-auto"
+              items={filteredCustomers}
+              isSelected={c => String(c.id) === form.customerId}
+              onToggle={c => setForm(f => ({ ...f, customerId: String(c.id), fieldIds: [] }))}
+              renderMain={c => c.name}
+              renderSub={c => c.contact || undefined}
+              emptyText="No customers match"
+            />
+
+            <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2 mt-5">Job Type</div>
+            <WizardCardList
+              className="space-y-2 max-h-[24vh] overflow-y-auto"
+              items={jobTypes}
+              isSelected={jt => String(jt.id) === form.jobTypeId}
+              onToggle={jt => handleJobTypeChange(String(jt.id))}
+              renderMain={jt => jt.name}
+              renderSub={jt => `${jt.billingUnit} · £${Number(jt.defaultRate)}`}
+              emptyText="No job types set up yet"
+            />
+
+            <WizardNav onBack={() => setWizardStep(0)} onNext={() => setWizardStep(2)} nextDisabled={!form.customerId || !form.jobTypeId} />
+          </>
+        )}
+
+        {createMode === "single" && wizardStep === 2 && (
+          <>
+            <h2 className="text-xl font-bold mb-1">Which field(s)?</h2>
+            <p className="text-sm text-stone-500 mb-4">{selectedCustomer ? `Pick as many of ${selectedCustomer.name}'s fields as apply` : "Pick as many as apply"}</p>
+
+            {addingField ? (
+              <div className="border-2 border-stone-200 rounded-2xl p-4 bg-stone-50 space-y-2.5">
+                <input className={wizardInputClass} placeholder="Field name (e.g. Top Field)" autoFocus value={newField.fieldName} onChange={e => setNewField(f => ({ ...f, fieldName: e.target.value }))} />
+                <input className={wizardInputClass} type="number" step="0.1" placeholder="Acres" value={newField.hectares} onChange={e => setNewField(f => ({ ...f, hectares: e.target.value }))} />
+                <div className="flex gap-2.5">
+                  <button type="button" onClick={() => { setAddingField(false); setNewField({ fieldName: "", hectares: "" }); }}
+                    className="flex-1 py-3.5 rounded-2xl text-sm font-bold text-stone-500 bg-white border-2 border-stone-200 hover:bg-stone-100 transition">
+                    Cancel
+                  </button>
+                  <button type="button" onClick={handleAddField} disabled={savingField || !newField.fieldName}
+                    className="flex-[2] py-3.5 rounded-2xl text-sm font-bold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                    {savingField ? "Saving..." : "Save Field"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <WizardCardList
+                  items={customerFields}
+                  isSelected={f => form.fieldIds.includes(String(f.id))}
+                  onToggle={f => setForm(fm => ({ ...fm, fieldIds: fm.fieldIds.includes(String(f.id)) ? fm.fieldIds.filter(id => id !== String(f.id)) : [...fm.fieldIds, String(f.id)] }))}
+                  renderMain={f => f.fieldName}
+                  renderSub={f => `${Number(f.hectares)} acres`}
+                  showCheck
+                  emptyText="This customer has no fields yet"
+                />
+                <button type="button" onClick={() => setAddingField(true)} className="mt-3 w-full py-3.5 rounded-2xl text-sm font-bold text-field-700 bg-field-50 hover:bg-field-100 transition">
+                  + Add a new field
+                </button>
+              </>
+            )}
+
+            <WizardNav onBack={() => setWizardStep(1)} onNext={() => setWizardStep(3)} />
+          </>
+        )}
+
+        {createMode === "single" && wizardStep === 3 && (
+          <>
+            <h2 className="text-xl font-bold mb-4">Assignment & schedule</h2>
+
+            <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">Assign to</div>
+            <WizardCardList
+              className="space-y-2 max-h-[22vh] overflow-y-auto mb-5"
+              items={[{ id: "", name: "Unassigned" }, ...assignableUsers]}
+              isSelected={u => (u.id ? String(u.id) : "") === form.assignedToUserId}
+              onToggle={u => setForm(f => ({ ...f, assignedToUserId: u.id ? String(u.id) : "" }))}
+              renderMain={u => u.name}
+            />
+
+            <FormField label="Planned Date">
+              <input className={`${wizardInputClass} appearance-none block`} type="date" value={form.plannedDate} onChange={e => setForm(f => ({ ...f, plannedDate: e.target.value }))} />
+            </FormField>
+            <FormField label={`Estimated Qty${form.unitType ? ` (${form.unitType}s)` : ""}`}>
+              <input className={wizardInputClass} type="number" step="0.25" inputMode="decimal" placeholder="0" value={form.estimatedQuantity} onChange={e => setForm(f => ({ ...f, estimatedQuantity: e.target.value }))} />
+            </FormField>
+            <FormField label="Notes">
+              <textarea className={wizardInputClass} placeholder="Additional notes..." rows={3} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+            </FormField>
+
+            <WizardNav onBack={() => setWizardStep(2)} onNext={() => setWizardStep(4)} />
+          </>
+        )}
+
+        {createMode === "single" && wizardStep === 4 && (
+          <>
+            <h2 className="text-xl font-bold mb-5">Confirm & create</h2>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
+                <span className="text-sm text-stone-500">Customer</span>
+                <span className="font-semibold text-sm">{selectedCustomer?.name || "—"}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
+                <span className="text-sm text-stone-500">Job Type</span>
+                <span className="font-semibold text-sm">{selectedJobType?.name || "—"}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
+                <span className="text-sm text-stone-500">Field(s)</span>
+                <span className="font-semibold text-sm">
+                  {form.fieldIds.length ? fields.filter((f: any) => form.fieldIds.includes(String(f.id))).map((f: any) => f.fieldName).join(", ") : "—"}
+                </span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
+                <span className="text-sm text-stone-500">Assigned to</span>
+                <span className="font-semibold text-sm">{assignableUsers.find((u: any) => String(u.id) === form.assignedToUserId)?.name || "Unassigned"}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
+                <span className="text-sm text-stone-500">Date</span>
+                <span className="font-semibold text-sm">{fmtDate(form.plannedDate)}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
+                <span className="text-sm text-stone-500">Estimated Qty</span>
+                <span className="font-semibold text-sm">{form.estimatedQuantity ? `${form.estimatedQuantity} ${form.unitType || "units"}` : "—"}</span>
+              </div>
+            </div>
+            <div className="mt-3">
+              <FormField label="Title" required>
+                <input className={inputClass} placeholder="e.g. Plough Top Field" value={form.title} onChange={e => {
+                  setForm(f => ({ ...f, title: e.target.value }));
+                  setTitleAuto(e.target.value.trim() === "");
+                }} />
+              </FormField>
+            </div>
+            <WizardNav onBack={() => setWizardStep(3)} onNext={handleCreate} nextLabel="Create Job" saving={creating} nextDisabled={creating || !form.title} />
+          </>
+        )}
+
+        {/* ══════════════ WORK PACKAGE FLOW ══════════════ */}
+
+        {createMode === "package" && wizardStep === 1 && (
+          <>
+            <h2 className="text-xl font-bold mb-4">Customer</h2>
+            <FormField label="Package Name (optional)">
+              <input className={inputClass} placeholder={packageForm.customerId ? `${customers.find((c: any) => String(c.id) === packageForm.customerId)?.name || ""} - ${validPackageItems.length || 0} jobs` : "e.g. Autumn Ploughing"}
+                value={packageForm.name} onChange={e => setPackageForm(f => ({ ...f, name: e.target.value }))} />
+            </FormField>
+
+            <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">Customer</div>
+            {customers.length > 6 && (
+              <input className={`${inputClass} mb-2`} placeholder="Search customers..." value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} />
+            )}
+            <WizardCardList
+              className="space-y-2 max-h-[38vh] overflow-y-auto"
+              items={filteredCustomers}
+              isSelected={c => String(c.id) === packageForm.customerId}
+              onToggle={c => setPackageForm(f => ({ ...f, customerId: String(c.id), fieldIds: [] }))}
+              renderMain={c => c.name}
+              renderSub={c => c.contact || undefined}
+              emptyText="No customers match"
+            />
+
+            <WizardNav onBack={() => setWizardStep(0)} onNext={() => setWizardStep(2)} nextDisabled={!packageForm.customerId} />
+          </>
+        )}
+
+        {createMode === "package" && wizardStep === 2 && (
+          <>
+            <h2 className="text-xl font-bold mb-1">Job types</h2>
+            <p className="text-sm text-stone-500 mb-4">Start from a template, or add job types manually</p>
+
+            <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">Template</div>
+            <WizardCardList
+              className="space-y-2 max-h-[20vh] overflow-y-auto"
+              items={[{ id: "", name: "None — build manually" }, ...templates]}
+              isSelected={t => (t.id ? String(t.id) : "") === packageForm.templateId}
+              onToggle={t => handleTemplateSelect(t.id ? String(t.id) : "")}
+              renderMain={t => t.name}
+            />
+
+            <div className="mt-5">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-stone-400">Jobs in this package</label>
+                <button type="button" onClick={addPackageItem} className="text-sm text-field-700 font-bold hover:underline">+ Add Job Type</button>
+              </div>
+              {packageForm.items.length === 0 && (
+                <div className="text-sm text-stone-400 py-3 text-center border border-dashed border-stone-200 rounded-xl">
+                  No jobs added yet — pick a template above or add one manually
+                </div>
+              )}
+              {packageForm.items.map((item, i) => (
+                <div key={i} className="flex gap-2 mb-2 items-center">
+                  <span className="text-sm text-stone-400 w-5 text-right flex-shrink-0">{i + 1}.</span>
+                  <select className={`${inputClass} flex-1`} value={item.jobTypeId} onChange={e => updatePackageItem(i, "jobTypeId", e.target.value)}>
+                    <option value="">Select job type...</option>
+                    {jobTypes.map((jt: any) => <option key={jt.id} value={jt.id}>{jt.name}</option>)}
+                  </select>
+                  <input className={`${inputClass} flex-1`} placeholder="Notes (optional)" value={item.notes} onChange={e => updatePackageItem(i, "notes", e.target.value)} />
+                  <button type="button" onClick={() => removePackageItem(i)} className="text-stone-400 hover:text-red-500 flex-shrink-0">✕</button>
+                </div>
+              ))}
+            </div>
+
+            <WizardNav onBack={() => setWizardStep(1)} onNext={() => setWizardStep(3)} nextDisabled={validPackageItems.length === 0} />
+          </>
+        )}
+
+        {createMode === "package" && wizardStep === 3 && (
+          <>
+            <h2 className="text-xl font-bold mb-1">Which field(s)?</h2>
+            <p className="text-sm text-stone-500 mb-4">{selectedPackageCustomer ? `Default fields for ${selectedPackageCustomer.name}'s jobs in this package` : "Default fields for this package"}</p>
+            <WizardCardList
+              items={packageCustomerFields}
+              isSelected={f => packageForm.fieldIds.includes(String(f.id))}
+              onToggle={f => setPackageForm(fm => ({ ...fm, fieldIds: fm.fieldIds.includes(String(f.id)) ? fm.fieldIds.filter(id => id !== String(f.id)) : [...fm.fieldIds, String(f.id)] }))}
+              renderMain={f => f.fieldName}
+              renderSub={f => `${Number(f.hectares)} acres`}
+              showCheck
+              emptyText="This customer has no fields yet"
+            />
+            <WizardNav onBack={() => setWizardStep(2)} onNext={() => setWizardStep(4)} />
+          </>
+        )}
+
+        {createMode === "package" && wizardStep === 4 && (
+          <>
+            <h2 className="text-xl font-bold mb-4">Defaults for every job</h2>
+            <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">Assign to</div>
+            <WizardCardList
+              className="space-y-2 max-h-[30vh] overflow-y-auto mb-5"
+              items={[{ id: "", name: "Unassigned" }, ...assignableUsers]}
+              isSelected={u => (u.id ? String(u.id) : "") === packageForm.assignedToUserId}
+              onToggle={u => setPackageForm(f => ({ ...f, assignedToUserId: u.id ? String(u.id) : "" }))}
+              renderMain={u => u.name}
+            />
+            <FormField label="Planned Date">
+              <input className={`${wizardInputClass} appearance-none block`} type="date" value={packageForm.plannedDate} onChange={e => setPackageForm(f => ({ ...f, plannedDate: e.target.value }))} />
+            </FormField>
+            <WizardNav onBack={() => setWizardStep(3)} onNext={() => setWizardStep(5)} />
+          </>
+        )}
+
+        {createMode === "package" && wizardStep === 5 && (
+          <>
+            <h2 className="text-xl font-bold mb-5">Confirm & create</h2>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
+                <span className="text-sm text-stone-500">Customer</span>
+                <span className="font-semibold text-sm">{selectedPackageCustomer?.name || "—"}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
+                <span className="text-sm text-stone-500">Jobs</span>
+                <span className="font-semibold text-sm">{validPackageItems.length}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
+                <span className="text-sm text-stone-500">Field(s)</span>
+                <span className="font-semibold text-sm">
+                  {packageForm.fieldIds.length ? fields.filter((f: any) => packageForm.fieldIds.includes(String(f.id))).map((f: any) => f.fieldName).join(", ") : "—"}
+                </span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
+                <span className="text-sm text-stone-500">Assigned to</span>
+                <span className="font-semibold text-sm">{assignableUsers.find((u: any) => String(u.id) === packageForm.assignedToUserId)?.name || "Unassigned"}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
+                <span className="text-sm text-stone-500">Date</span>
+                <span className="font-semibold text-sm">{fmtDate(packageForm.plannedDate)}</span>
+              </div>
+            </div>
+            <div className="mt-3">
+              <FormField label="Package Name">
+                <input className={inputClass} placeholder={`${selectedPackageCustomer?.name || ""} - ${validPackageItems.length} jobs`} value={packageForm.name} onChange={e => setPackageForm(f => ({ ...f, name: e.target.value }))} />
+              </FormField>
+            </div>
+            <WizardNav
+              onBack={() => setWizardStep(4)}
+              onNext={handleCreatePackage}
+              nextLabel={`Create Work Package (${validPackageItems.length} job${validPackageItems.length === 1 ? "" : "s"})`}
+              saving={packageSaving}
+              nextDisabled={packageSaving || !packageForm.customerId || validPackageItems.length === 0}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ============================================================
 // DASHBOARD
 // ============================================================
@@ -252,7 +797,7 @@ function MobileHome({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => v
                     <div className="min-w-0 flex-1">
                       <div className="font-bold text-base truncate">{job.title}</div>
                       <div className="text-sm text-stone-500 truncate">
-                        {job.customer?.name}{job.field?.fieldName ? ` · ${job.field.fieldName}` : ""}
+                        {job.customer?.name}{fieldNames(job) ? ` · ${fieldNames(job)}` : ""}
                         {canManageJobs && job.assignedTo?.name ? ` · ${job.assignedTo.name}` : ""}
                       </div>
                     </div>
@@ -508,142 +1053,13 @@ function Dashboard({ onSelectJob, onNavigate }: { onSelectJob?: (job: any) => vo
 // JOBS
 // ============================================================
 function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => void; initialFilter?: string }) {
-  const { jobs, customers, fields, jobTypes, users, machines, jobGroups, currentUser, refresh } = useApp();
+  const { jobs, currentUser } = useApp();
   const canManageJobs = currentUser?.role === "admin" || currentUser?.role === "job_admin";
   // "create" is a signal from MobileHome's shortcut button to open the modal directly, not a real status filter
   const [filter, setFilter] = useState(initialFilter && initialFilter !== "create" ? initialFilter : "all");
   const [showCreate, setShowCreate] = useState(initialFilter === "create" && canManageJobs);
-  const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({
-    customerId: "", fieldId: "", jobTypeId: "", assignedToUserId: "",
-    title: "", description: "", plannedDate: "", estimatedQuantity: "", unitType: "",
-  });
-  const [addingField, setAddingField] = useState(false);
-  const [savingField, setSavingField] = useState(false);
-  const [newField, setNewField] = useState({ fieldName: "", hectares: "" });
-  // Title auto-fills from Job Type / Customer / Field until the user types their own
-  const [titleAuto, setTitleAuto] = useState(true);
-
-  // Work Package mode — creates several jobs at once, optionally seeded from a saved template
-  const [createMode, setCreateMode] = useState<"single" | "package">("single");
-  const blankPackageForm = () => ({
-    name: "", customerId: "", templateId: "",
-    fieldId: "", assignedToUserId: "", plannedDate: "",
-    items: [] as Array<{ jobTypeId: string; notes: string }>,
-  });
-  const [packageForm, setPackageForm] = useState(blankPackageForm());
-  const [packageSaving, setPackageSaving] = useState(false);
-  const templates = jobGroups.filter((g: any) => g.isTemplate);
 
   const filtered = filter === "all" ? jobs : (filter === "active" ? jobs.filter((j: any) => j.status === "scheduled" || j.status === "in_progress") : jobs.filter((j: any) => j.status === filter));
-  const assignableUsers = users.filter((u: any) => u.active);
-  const customerFields = form.customerId ? fields.filter((f: any) => f.customer?.id === Number(form.customerId)) : [];
-
-  useEffect(() => {
-    if (!titleAuto) return;
-    const jt = jobTypes.find((j: any) => j.id === Number(form.jobTypeId));
-    const cust = customers.find((c: any) => c.id === Number(form.customerId));
-    if (!jt || !cust) return;
-    const fld = form.fieldId ? fields.find((f: any) => f.id === Number(form.fieldId)) : null;
-    const generated = `${jt.name} - ${cust.name}${fld ? ` - ${fld.fieldName}` : ""}`;
-    setForm(f => (f.title === generated ? f : { ...f, title: generated }));
-  }, [form.jobTypeId, form.customerId, form.fieldId, jobTypes, customers, fields, titleAuto]);
-
-  // Auto-set unit type when job type selected
-  const handleJobTypeChange = (jobTypeId: string) => {
-    const jt = jobTypes.find((j: any) => j.id === Number(jobTypeId));
-    setForm(f => ({ ...f, jobTypeId, unitType: jt?.billingUnit || "" }));
-  };
-
-  const handleCreate = async () => {
-    setCreating(true);
-    try {
-      await api.createJob({
-        customerId: Number(form.customerId),
-        fieldId: form.fieldId ? Number(form.fieldId) : undefined,
-        jobTypeId: Number(form.jobTypeId),
-        assignedToUserId: form.assignedToUserId ? Number(form.assignedToUserId) : undefined,
-        title: form.title,
-        description: form.description || undefined,
-        plannedDate: form.plannedDate || undefined,
-        estimatedQuantity: form.estimatedQuantity ? Number(form.estimatedQuantity) : undefined,
-        unitType: form.unitType || undefined,
-      });
-      await refresh();
-      setShowCreate(false);
-      setForm({ customerId: "", fieldId: "", jobTypeId: "", assignedToUserId: "", title: "", description: "", plannedDate: "", estimatedQuantity: "", unitType: "" });
-      setAddingField(false);
-      setNewField({ fieldName: "", hectares: "" });
-      setTitleAuto(true);
-    } catch (err: any) {
-      alert("Error creating job: " + err.message);
-    }
-    setCreating(false);
-  };
-
-  // Adds a field to the selected customer on the fly, so the database builds up as jobs are created
-  const handleAddField = async () => {
-    setSavingField(true);
-    try {
-      const created = await api.createField({
-        customerId: Number(form.customerId),
-        fieldName: newField.fieldName,
-        hectares: Number(newField.hectares) || 0,
-      });
-      await refresh();
-      setForm(f => ({ ...f, fieldId: String(created.id) }));
-      setAddingField(false);
-      setNewField({ fieldName: "", hectares: "" });
-    } catch (err: any) {
-      alert("Error adding field: " + err.message);
-    }
-    setSavingField(false);
-  };
-
-  const closeCreateModal = () => {
-    setShowCreate(false);
-    setCreateMode("single");
-    setPackageForm(blankPackageForm());
-  };
-
-  // Picking a template seeds the item list client-side — no server round-trip needed
-  const handleTemplateSelect = (templateId: string) => {
-    const template = templates.find((t: any) => String(t.id) === templateId);
-    setPackageForm(f => ({
-      ...f,
-      templateId,
-      name: template ? template.name : f.name,
-      items: template
-        ? (template.templateItems || []).map((item: any) => ({ jobTypeId: String(item.jobTypeId), notes: item.notes || "" }))
-        : f.items,
-    }));
-  };
-
-  const addPackageItem = () => setPackageForm(f => ({ ...f, items: [...f.items, { jobTypeId: "", notes: "" }] }));
-  const removePackageItem = (i: number) => setPackageForm(f => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }));
-  const updatePackageItem = (i: number, field: string, value: string) =>
-    setPackageForm(f => ({ ...f, items: f.items.map((item, idx) => idx === i ? { ...item, [field]: value } : item) }));
-
-  const validPackageItems = packageForm.items.filter(item => item.jobTypeId);
-
-  const handleCreatePackage = async () => {
-    setPackageSaving(true);
-    try {
-      await api.createWorkPackage({
-        name: packageForm.name || undefined,
-        customerId: Number(packageForm.customerId),
-        fieldId: packageForm.fieldId ? Number(packageForm.fieldId) : undefined,
-        assignedToUserId: packageForm.assignedToUserId ? Number(packageForm.assignedToUserId) : undefined,
-        plannedDate: packageForm.plannedDate || undefined,
-        items: validPackageItems.map(item => ({ jobTypeId: Number(item.jobTypeId), notes: item.notes || undefined })),
-      });
-      await refresh();
-      closeCreateModal();
-    } catch (err: any) {
-      alert("Error creating work package: " + err.message);
-    }
-    setPackageSaving(false);
-  };
 
   return (
     <div>
@@ -677,7 +1093,7 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
               <tr key={job.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50 cursor-pointer transition" onClick={() => onSelectJob(job)}>
                 <td className="px-4 py-3 font-semibold text-sm">{job.title}</td>
                 <td className="px-4 py-3 text-sm">{job.customer?.name}</td>
-                <td className="px-4 py-3 text-sm">{job.field?.fieldName || "—"}</td>
+                <td className="px-4 py-3 text-sm">{fieldNames(job) || "—"}</td>
                 <td className="px-4 py-3 text-sm">{job.jobType?.name}</td>
                 <td className="px-4 py-3 text-sm">{job.assignedTo?.name || "—"}</td>
                 <td className="px-4 py-3 text-sm">{fmtDate(job.plannedDate)}</td>
@@ -699,7 +1115,7 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
               <div className="flex-shrink-0"><StatusBadge status={job.status} /></div>
             </div>
             <div className="text-sm text-stone-500 space-y-0.5">
-              <div className="truncate">{job.customer?.name}{job.field?.fieldName ? ` · ${job.field.fieldName}` : ""}</div>
+              <div className="truncate">{job.customer?.name}{fieldNames(job) ? ` · ${fieldNames(job)}` : ""}</div>
               <div>{fmtDate(job.plannedDate)} · {job.estimatedQuantity ? `${Number(job.estimatedQuantity)} ${job.unitType || "units"}` : ""}</div>
             </div>
           </Card>
@@ -707,165 +1123,12 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
         {filtered.length === 0 && <div className="text-center py-12 text-stone-400 text-sm">No jobs found</div>}
       </div>
 
-      {/* Create Job Modal */}
-      <Modal isOpen={showCreate} onClose={closeCreateModal} title={createMode === "package" ? "Create Work Package" : "Create New Job"}>
-        <div className="flex bg-stone-100 rounded-lg p-1 mb-4">
-          <button type="button" onClick={() => setCreateMode("single")}
-            className={`flex-1 py-2 rounded-md text-sm font-semibold transition ${createMode === "single" ? "bg-white text-field-700 shadow-sm" : "text-stone-500"}`}>
-            Single Job
-          </button>
-          <button type="button" onClick={() => setCreateMode("package")}
-            className={`flex-1 py-2 rounded-md text-sm font-semibold transition ${createMode === "package" ? "bg-white text-field-700 shadow-sm" : "text-stone-500"}`}>
-            Work Package
-          </button>
-        </div>
-
-        {createMode === "single" ? (
-          <>
-            <FormField label="Customer" required>
-              <select className={inputClass} value={form.customerId} onChange={e => {
-                setForm(f => ({ ...f, customerId: e.target.value, fieldId: "" }));
-                setAddingField(false);
-                setNewField({ fieldName: "", hectares: "" });
-              }}>
-                <option value="">Select customer...</option>
-                {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </FormField>
-            <FormField label="Job Type" required>
-              <select className={inputClass} value={form.jobTypeId} onChange={e => handleJobTypeChange(e.target.value)}>
-                <option value="">Select type...</option>
-                {jobTypes.map((jt: any) => <option key={jt.id} value={jt.id}>{jt.name}</option>)}
-              </select>
-            </FormField>
-            <FormField label="Field">
-              {addingField ? (
-                <div className="border border-stone-200 rounded-lg p-3 bg-stone-50 space-y-2">
-                  <input className={inputClass} placeholder="Field name (e.g. Top Field)" autoFocus value={newField.fieldName} onChange={e => setNewField(f => ({ ...f, fieldName: e.target.value }))} />
-                  <input className={inputClass} type="number" step="0.1" placeholder="Acres" value={newField.hectares} onChange={e => setNewField(f => ({ ...f, hectares: e.target.value }))} />
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => { setAddingField(false); setNewField({ fieldName: "", hectares: "" }); }}
-                      className="flex-1 px-3 py-2.5 rounded-lg text-sm font-semibold text-stone-500 bg-white border border-stone-200 hover:bg-stone-100 transition">
-                      Cancel
-                    </button>
-                    <button type="button" onClick={handleAddField} disabled={savingField || !newField.fieldName}
-                      className="flex-[2] px-3 py-2.5 rounded-lg text-sm font-semibold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition">
-                      {savingField ? "Saving..." : "Save Field"}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <select className={inputClass} value={form.fieldId} onChange={e => setForm(f => ({ ...f, fieldId: e.target.value }))} disabled={!form.customerId}>
-                    <option value="">{form.customerId ? "None / not applicable" : "Select customer first"}</option>
-                    {customerFields.map((f: any) => <option key={f.id} value={f.id}>{f.fieldName} ({Number(f.hectares)} ac)</option>)}
-                  </select>
-                  {form.customerId && (
-                    <button type="button" onClick={() => setAddingField(true)} className="mt-1.5 text-sm font-semibold text-field-700 hover:underline">
-                      + Add a new field for this customer
-                    </button>
-                  )}
-                </>
-              )}
-            </FormField>
-            <FormField label="Assign To">
-              <select className={inputClass} value={form.assignedToUserId} onChange={e => setForm(f => ({ ...f, assignedToUserId: e.target.value }))}>
-                <option value="">Unassigned</option>
-                {assignableUsers.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
-            </FormField>
-            <FormField label="Title" required>
-              <input className={inputClass} placeholder="e.g. Plough Top Field" value={form.title} onChange={e => {
-                setForm(f => ({ ...f, title: e.target.value }));
-                setTitleAuto(e.target.value.trim() === "");
-              }} />
-            </FormField>
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="Planned Date">
-                <input className={inputClass} type="date" value={form.plannedDate} onChange={e => setForm(f => ({ ...f, plannedDate: e.target.value }))} />
-              </FormField>
-              <FormField label={`Estimated Qty${form.unitType ? ` (${form.unitType}s)` : ""}`}>
-                <input className={inputClass} type="number" step="0.25" placeholder="0" value={form.estimatedQuantity} onChange={e => setForm(f => ({ ...f, estimatedQuantity: e.target.value }))} />
-              </FormField>
-            </div>
-            <FormField label="Description">
-              <textarea className={inputClass} placeholder="Additional notes..." rows={3} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
-            </FormField>
-            <div className="flex gap-2 mt-2">
-              <Btn variant="ghost" className="flex-1" onClick={closeCreateModal}>Cancel</Btn>
-              <Btn className="flex-[2]" onClick={handleCreate} disabled={creating || !form.customerId || !form.jobTypeId || !form.title}>
-                {creating ? "Creating..." : "Create Job"}
-              </Btn>
-            </div>
-          </>
-        ) : (
-          <>
-            <FormField label="Package Name">
-              <input className={inputClass} placeholder={packageForm.customerId ? `${customers.find((c: any) => String(c.id) === packageForm.customerId)?.name || ""} - ${validPackageItems.length || 0} jobs` : "e.g. Autumn Ploughing"}
-                value={packageForm.name} onChange={e => setPackageForm(f => ({ ...f, name: e.target.value }))} />
-            </FormField>
-            <FormField label="Customer" required>
-              <select className={inputClass} value={packageForm.customerId} onChange={e => setPackageForm(f => ({ ...f, customerId: e.target.value, fieldId: "" }))}>
-                <option value="">Select customer...</option>
-                {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </FormField>
-            <FormField label="Start from a template">
-              <select className={inputClass} value={packageForm.templateId} onChange={e => handleTemplateSelect(e.target.value)}>
-                <option value="">None — build manually</option>
-                {templates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </FormField>
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="Default Field">
-                <select className={inputClass} value={packageForm.fieldId} onChange={e => setPackageForm(f => ({ ...f, fieldId: e.target.value }))} disabled={!packageForm.customerId}>
-                  <option value="">{packageForm.customerId ? "None / varies" : "Select customer first"}</option>
-                  {fields.filter((f: any) => f.customer?.id === Number(packageForm.customerId)).map((f: any) => <option key={f.id} value={f.id}>{f.fieldName}</option>)}
-                </select>
-              </FormField>
-              <FormField label="Default Planned Date">
-                <input className={inputClass} type="date" value={packageForm.plannedDate} onChange={e => setPackageForm(f => ({ ...f, plannedDate: e.target.value }))} />
-              </FormField>
-            </div>
-            <FormField label="Default Assign To">
-              <select className={inputClass} value={packageForm.assignedToUserId} onChange={e => setPackageForm(f => ({ ...f, assignedToUserId: e.target.value }))}>
-                <option value="">Unassigned</option>
-                {assignableUsers.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
-            </FormField>
-
-            <div className="mb-3">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-semibold text-stone-500 uppercase tracking-wider">Jobs in this package</label>
-                <button type="button" onClick={addPackageItem} className="text-sm text-field-700 font-semibold hover:underline">+ Add Job Type</button>
-              </div>
-              {packageForm.items.length === 0 && (
-                <div className="text-sm text-stone-400 py-2 text-center border border-dashed border-stone-200 rounded-lg">
-                  No jobs added yet — pick a template above or add one manually
-                </div>
-              )}
-              {packageForm.items.map((item, i) => (
-                <div key={i} className="flex gap-2 mb-2 items-center">
-                  <span className="text-sm text-stone-400 w-5 text-right flex-shrink-0">{i + 1}.</span>
-                  <select className={`${inputClass} flex-1`} value={item.jobTypeId} onChange={e => updatePackageItem(i, "jobTypeId", e.target.value)}>
-                    <option value="">Select job type...</option>
-                    {jobTypes.map((jt: any) => <option key={jt.id} value={jt.id}>{jt.name}</option>)}
-                  </select>
-                  <input className={`${inputClass} flex-1`} placeholder="Notes (optional)" value={item.notes} onChange={e => updatePackageItem(i, "notes", e.target.value)} />
-                  <button type="button" onClick={() => removePackageItem(i)} className="text-stone-400 hover:text-red-500 flex-shrink-0">✕</button>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex gap-2 mt-2">
-              <Btn variant="ghost" className="flex-1" onClick={closeCreateModal}>Cancel</Btn>
-              <Btn className="flex-[2]" onClick={handleCreatePackage} disabled={packageSaving || !packageForm.customerId || validPackageItems.length === 0}>
-                {packageSaving ? "Creating..." : `Create Work Package (${validPackageItems.length} job${validPackageItems.length === 1 ? "" : "s"})`}
-              </Btn>
-            </div>
-          </>
-        )}
-      </Modal>
+      {/* Create Job Wizard */}
+      <CreateJobWizard
+        isOpen={showCreate}
+        onClose={() => setShowCreate(false)}
+        skipModeSelect={initialFilter === "create"}
+      />
     </div>
   );
 }
@@ -881,7 +1144,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
   const [showLogForm, setShowLogForm] = useState(false);
   const [logStep, setLogStep] = useState(0);
   const [logSaving, setLogSaving] = useState(false);
-  const [logForm, setLogForm] = useState({ machineId: "", quantityCompleted: "", notes: "" });
+  const [logForm, setLogForm] = useState({ machineIds: [] as string[], quantityCompleted: "", notes: "" });
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -941,7 +1204,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
   const closeLogForm = () => {
     setShowLogForm(false);
     setLogStep(0);
-    setLogForm({ machineId: "", quantityCompleted: "", notes: "" });
+    setLogForm({ machineIds: [], quantityCompleted: "", notes: "" });
   };
 
   const handleLogWork = async () => {
@@ -950,7 +1213,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
       const result = await api.createJobLog({
         jobId: job.id,
         contractorId: job.assignedTo?.id || assignableUsers[0]?.id,
-        machineId: logForm.machineId ? Number(logForm.machineId) : undefined,
+        machineIds: logForm.machineIds.map(Number),
         quantityCompleted: Number(logForm.quantityCompleted),
         hoursWorked: 0,
         notes: logForm.notes || undefined,
@@ -1002,7 +1265,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
         </div>
         <div className="grid sm:grid-cols-2 gap-x-8 gap-y-2 text-sm">
           <div><span className="text-stone-500">Customer:</span> <span className="font-medium">{job.customer?.name}</span></div>
-          <div><span className="text-stone-500">Field:</span> <span className="font-medium">{job.field ? `${job.field.fieldName} (${Number(job.field.hectares)} ac)` : "—"}</span></div>
+          <div><span className="text-stone-500">Field:</span> <span className="font-medium">{fieldNames(job) || "—"}</span></div>
           <div><span className="text-stone-500">Type:</span> <span className="font-medium">{job.jobType?.name}</span></div>
           <div><span className="text-stone-500">Assigned:</span> <span className="font-medium">{job.assignedTo?.name || "Unassigned"}</span></div>
           <div><span className="text-stone-500">Date:</span> <span className="font-medium">{fmtDate(job.plannedDate)}</span></div>
@@ -1088,7 +1351,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
             {logs.map((log: any) => (
               <Card key={log.id} className="p-4">
                 <div className="flex justify-between text-base">
-                  <span className="font-semibold">{log.machine?.name || "No machine"}</span>
+                  <span className="font-semibold">{logMachineNames(log) || "No machine"}</span>
                   <span className="text-stone-400 text-sm">{fmtDate(log.createdAt)}</span>
                 </div>
                 <div className="text-sm text-stone-500 mt-1">
@@ -1114,28 +1377,39 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
               </button>
             </div>
 
-            {/* Step 1: Machine */}
+            {/* Step 1: Machine(s) */}
             {logStep === 0 && (
               <>
-                <h2 className="text-xl font-bold mb-5">Which machine?</h2>
+                <h2 className="text-xl font-bold mb-5">Which machine(s)?</h2>
                 <div className="space-y-2.5 max-h-[55vh] overflow-y-auto">
                   <button
-                    onClick={() => setLogForm(f => ({ ...f, machineId: "" }))}
-                    className={`w-full text-left px-4 py-4 rounded-2xl border-2 transition ${logForm.machineId === "" ? "border-field-600 bg-field-50" : "border-stone-200 bg-white hover:border-stone-300"}`}
+                    onClick={() => setLogForm(f => ({ ...f, machineIds: [] }))}
+                    className={`w-full text-left px-4 py-4 rounded-2xl border-2 transition ${logForm.machineIds.length === 0 ? "border-field-600 bg-field-50" : "border-stone-200 bg-white hover:border-stone-300"}`}
                   >
                     <div className="font-bold text-base">No machine</div>
                     <div className="text-sm text-stone-500">Not applicable for this job</div>
                   </button>
-                  {machines.filter((m: any) => m.active).map((m: any) => (
-                    <button
-                      key={m.id}
-                      onClick={() => setLogForm(f => ({ ...f, machineId: String(m.id) }))}
-                      className={`w-full text-left px-4 py-4 rounded-2xl border-2 transition ${logForm.machineId === String(m.id) ? "border-field-600 bg-field-50" : "border-stone-200 bg-white hover:border-stone-300"}`}
-                    >
-                      <div className="font-bold text-base">{m.name}</div>
-                      <div className="text-sm text-stone-500">{m.registration}</div>
-                    </button>
-                  ))}
+                  {machines.filter((m: any) => m.active).map((m: any) => {
+                    const selected = logForm.machineIds.includes(String(m.id));
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => setLogForm(f => ({
+                          ...f,
+                          machineIds: selected ? f.machineIds.filter(id => id !== String(m.id)) : [...f.machineIds, String(m.id)],
+                        }))}
+                        className={`w-full text-left px-4 py-4 rounded-2xl border-2 transition flex items-center justify-between gap-3 ${selected ? "border-field-600 bg-field-50" : "border-stone-200 bg-white hover:border-stone-300"}`}
+                      >
+                        <div>
+                          <div className="font-bold text-base">{m.name}</div>
+                          <div className="text-sm text-stone-500">{m.registration}</div>
+                        </div>
+                        {selected && (
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-field-600 flex-shrink-0"><path d="M20 6L9 17l-5-5" /></svg>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
                 <WizardNav onNext={() => setLogStep(1)} />
               </>
@@ -1180,9 +1454,11 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
                 <h2 className="text-xl font-bold mb-5">Confirm & save</h2>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
-                    <span className="text-sm text-stone-500">Machine</span>
+                    <span className="text-sm text-stone-500">Machine(s)</span>
                     <span className="font-semibold text-sm">
-                      {machines.find((m: any) => String(m.id) === logForm.machineId)?.name || "No machine"}
+                      {logForm.machineIds.length
+                        ? machines.filter((m: any) => logForm.machineIds.includes(String(m.id))).map((m: any) => m.name).join(", ")
+                        : "No machine"}
                     </span>
                   </div>
                   <div className="flex justify-between items-center px-4 py-3.5 rounded-xl bg-stone-50">
@@ -1220,9 +1496,9 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
             {assignableUsers.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
         </FormField>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <FormField label="Planned Date">
-            <input className={inputClass} type="date" value={editForm.plannedDate} onChange={e => setEditForm(f => ({ ...f, plannedDate: e.target.value }))} />
+            <input className={`${inputClass} appearance-none block`} type="date" value={editForm.plannedDate} onChange={e => setEditForm(f => ({ ...f, plannedDate: e.target.value }))} />
           </FormField>
           <FormField label={`Estimated Qty${job.unitType ? ` (${job.unitType}s)` : ""}`}>
             <input className={inputClass} type="number" step="0.25" value={editForm.estimatedQuantity} onChange={e => setEditForm(f => ({ ...f, estimatedQuantity: e.target.value }))} />
@@ -1808,7 +2084,7 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                     <input type="checkbox" checked={selectedJobIds.includes(job.id)} onChange={() => toggleJob(job.id)} className="accent-field-600" />
                     <div className="flex-1">
                       <div className="font-semibold text-base">{job.title}</div>
-                      <div className="text-sm text-stone-500">{job.field?.fieldName ? `${job.field.fieldName} · ` : ""}{job.jobType?.name}</div>
+                      <div className="text-sm text-stone-500">{fieldNames(job) ? `${fieldNames(job)} · ` : ""}{job.jobType?.name}</div>
                     </div>
                   </label>
                 ))}
@@ -2545,7 +2821,7 @@ function WorkOrdersView() {
     customerId: "",
     fieldId: "",
     assignedToUserId: "",
-    plannedDate: "",
+    plannedDate: todayStr(),
     overrides: {} as Record<string, { assignedToUserId?: string; plannedDate?: string }>
   });
   const [applying, setApplying] = useState(false);
@@ -2634,14 +2910,14 @@ function WorkOrdersView() {
       await api.applyTemplate(applyingTemplate.id, {
         customerId: Number(applyForm.customerId),
         organisationId: (currentUser as any)?.organisationId || 1,
-        fieldId: applyForm.fieldId ? Number(applyForm.fieldId) : undefined,
+        fieldIds: applyForm.fieldId ? [Number(applyForm.fieldId)] : undefined,
         assignedToUserId: applyForm.assignedToUserId ? Number(applyForm.assignedToUserId) : undefined,
         plannedDate: applyForm.plannedDate || undefined,
         overrides,
       });
       await refresh();
       setApplyingTemplate(null);
-      setApplyForm({ customerId: "", fieldId: "", assignedToUserId: "", plannedDate: "", overrides: {} });
+      setApplyForm({ customerId: "", fieldId: "", assignedToUserId: "", plannedDate: todayStr(), overrides: {} });
     } catch (err: any) { alert("Error: " + err.message); }
     setApplying(false);
   };
@@ -2717,7 +2993,7 @@ function WorkOrdersView() {
                       <div key={job.id} className="flex items-center gap-2 text-sm text-stone-600">
                         <StatusBadge status={job.status} />
                         <span>{job.title}</span>
-                        {job.field && <span className="text-stone-400">· {job.field.fieldName}</span>}
+                        {fieldNames(job) && <span className="text-stone-400">· {fieldNames(job)}</span>}
                         {job.assignedTo && <span className="text-stone-400">· {job.assignedTo.name}</span>}
                       </div>
                     ))}
@@ -2727,7 +3003,7 @@ function WorkOrdersView() {
 
               <div className="flex gap-1 flex-shrink-0">
                 {g.isTemplate && (
-                  <button onClick={() => { setApplyingTemplate(g); setApplyForm({ customerId: "", fieldId: "", assignedToUserId: "", plannedDate: "", overrides: {} }); }}
+                  <button onClick={() => { setApplyingTemplate(g); setApplyForm({ customerId: "", fieldId: "", assignedToUserId: "", plannedDate: todayStr(), overrides: {} }); }}
                     className="px-2.5 py-1.5 text-sm font-medium text-harvest-700 bg-harvest-50 rounded-lg hover:bg-harvest-100 transition">
                     Apply
                   </button>
@@ -2814,7 +3090,7 @@ function WorkOrdersView() {
           </select>
         </FormField>
         <FormField label="Default Planned Date (can override per job)">
-          <input className={inputClass} type="date" value={applyForm.plannedDate} onChange={e => setApplyForm(f => ({ ...f, plannedDate: e.target.value }))} />
+          <input className={`${inputClass} appearance-none block`} type="date" value={applyForm.plannedDate} onChange={e => setApplyForm(f => ({ ...f, plannedDate: e.target.value }))} />
         </FormField>
 
         {/* Per-job overrides */}

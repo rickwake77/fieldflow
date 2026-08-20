@@ -84,9 +84,25 @@ model Field {
   notes          String?   @db.Text
 
   customer       Customer  @relation(fields: [customerId], references: [id])
+  // Deprecated reverse relation of Job.fieldId — see jobFields below
   jobs           Job[]
+  jobFields      JobField[]
 
   @@map("fields")
+}
+
+// A job can span multiple fields (all belonging to the job's customer),
+// still billed as a single invoice line — this replaces Job.fieldId
+model JobField {
+  id      Int   @id @default(autoincrement())
+  jobId   Int   @map("job_id")
+  fieldId Int   @map("field_id")
+
+  job     Job   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  field   Field @relation(fields: [fieldId], references: [id])
+
+  @@unique([jobId, fieldId])
+  @@map("job_fields")
 }
 
 model JobType {
@@ -114,9 +130,26 @@ model Machine {
   active          Boolean       @default(true)
 
   organisation    Organisation  @relation(fields: [organisationId], references: [id])
+  // Deprecated reverse relation of JobLog.machineId — see jobLogMachines below
   jobLogs         JobLog[]
+  jobLogMachines  JobLogMachine[]
 
   @@map("machines")
+}
+
+// A single work-log entry can involve multiple machines used together
+// (e.g. tractor + baler), still recorded as one log — this replaces
+// JobLog.machineId
+model JobLogMachine {
+  id        Int     @id @default(autoincrement())
+  jobLogId  Int     @map("job_log_id")
+  machineId Int     @map("machine_id")
+
+  jobLog    JobLog  @relation(fields: [jobLogId], references: [id], onDelete: Cascade)
+  machine   Machine @relation(fields: [machineId], references: [id])
+
+  @@unique([jobLogId, machineId])
+  @@map("job_log_machines")
 }
 
 // ============================================================
@@ -140,6 +173,9 @@ model Job {
   createdAt         DateTime      @default(now()) @map("created_at")
 
   customer          Customer      @relation(fields: [customerId], references: [id])
+  // Deprecated: superseded by jobFields (a job can now span multiple fields).
+  // Left in place rather than dropped since this is a live database — see
+  // scripts/backfill-job-fields.ts. Not written to by new code.
   field             Field?        @relation(fields: [fieldId], references: [id])
   jobType           JobType       @relation(fields: [jobTypeId], references: [id])
   assignedTo        User?         @relation("AssignedJobs", fields: [assignedToUserId], references: [id])
@@ -147,6 +183,7 @@ model Job {
   jobGroup          JobGroup?     @relation(fields: [jobGroupId], references: [id])
   jobLogs           JobLog[]
   invoiceItems      InvoiceItem[]
+  jobFields         JobField[]
 
   @@map("jobs")
 }
@@ -212,7 +249,12 @@ model JobLog {
 
   job               Job       @relation(fields: [jobId], references: [id])
   contractor        User      @relation(fields: [contractorId], references: [id])
+  // Deprecated: superseded by logMachines (a log can now involve multiple
+  // machines). Left in place rather than dropped since this is a live
+  // database — see scripts/backfill-job-log-machines.ts. Not written to by
+  // new code.
   machine           Machine?  @relation(fields: [machineId], references: [id])
+  logMachines       JobLogMachine[]
 
   @@map("job_logs")
 }

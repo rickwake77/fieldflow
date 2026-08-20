@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
       where,
       include: {
         customer: { select: { id: true, name: true } },
-        field: { select: { id: true, fieldName: true, hectares: true } },
+        jobFields: { include: { field: { select: { id: true, fieldName: true, hectares: true } } } },
         jobType: { select: { id: true, name: true, billingUnit: true, defaultRate: true } },
         assignedTo: { select: { id: true, name: true } },
         _count: { select: { jobLogs: true } },
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
 
     const body = await parseBody<{
       customerId: number;
-      fieldId?: number;
+      fieldIds?: number[];
       jobTypeId: number;
       assignedToUserId?: number;
       title: string;
@@ -71,7 +71,6 @@ export async function POST(request: Request) {
     const job = await prisma.job.create({
       data: {
         customerId: body.customerId,
-        fieldId: body.fieldId || null,
         jobTypeId: body.jobTypeId,
         assignedToUserId: body.assignedToUserId,
         title: body.title,
@@ -80,10 +79,13 @@ export async function POST(request: Request) {
         estimatedQuantity: body.estimatedQuantity,
         unitType: body.unitType,
         createdBy,
+        jobFields: body.fieldIds?.length
+          ? { create: body.fieldIds.map((fieldId) => ({ fieldId })) }
+          : undefined,
       },
       include: {
         customer: { select: { id: true, name: true } },
-        field: { select: { id: true, fieldName: true } },
+        jobFields: { include: { field: { select: { id: true, fieldName: true } } } },
         jobType: { select: { id: true, name: true } },
         assignedTo: { select: { id: true, name: true } },
       },

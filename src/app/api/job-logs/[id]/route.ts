@@ -23,9 +23,20 @@ export async function PATCH(request: Request, { params }: Params) {
       quantityCompleted: number;
       hoursWorked: number;
       notes: string;
-      machineId: number;
+      machineIds: number[];
     }>>(request);
-    const log = await prisma.jobLog.update({ where: { id: Number(id) }, data: body });
+
+    const { machineIds, ...scalarBody } = body;
+    const data: Record<string, unknown> = { ...scalarBody };
+    if (machineIds) {
+      data.logMachines = { deleteMany: {}, create: machineIds.map((machineId) => ({ machineId })) };
+    }
+
+    const log = await prisma.jobLog.update({
+      where: { id: Number(id) },
+      data,
+      include: { logMachines: { include: { machine: { select: { id: true, name: true } } } } },
+    });
     return success(log);
   } catch (err) {
     return serverError(err);

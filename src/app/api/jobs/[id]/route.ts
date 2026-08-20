@@ -20,14 +20,14 @@ export async function GET(_request: Request, { params }: Params) {
       where: { id: Number(id) },
       include: {
         customer: true,
-        field: true,
+        jobFields: { include: { field: true } },
         jobType: true,
         assignedTo: { select: { id: true, name: true, phone: true } },
         createdByUser: { select: { id: true, name: true } },
         jobLogs: {
           include: {
             contractor: { select: { id: true, name: true } },
-            machine: { select: { id: true, name: true, registration: true } },
+            logMachines: { include: { machine: { select: { id: true, name: true, registration: true } } } },
           },
           orderBy: { createdAt: "desc" },
         },
@@ -69,6 +69,7 @@ export async function PATCH(request: Request, { params }: Params) {
       estimatedQuantity: number;
       unitType: string;
       status: string;
+      fieldIds: number[];
     }>>(request);
 
     if (!isManager(role)) {
@@ -79,15 +80,19 @@ export async function PATCH(request: Request, { params }: Params) {
       }
     }
 
-    const data: Record<string, unknown> = { ...body };
+    const { fieldIds, ...scalarBody } = body;
+    const data: Record<string, unknown> = { ...scalarBody };
     if (body.plannedDate) data.plannedDate = new Date(body.plannedDate);
+    if (fieldIds) {
+      data.jobFields = { deleteMany: {}, create: fieldIds.map((fieldId) => ({ fieldId })) };
+    }
 
     const job = await prisma.job.update({
       where: { id: Number(id) },
       data,
       include: {
         customer: { select: { id: true, name: true } },
-        field: { select: { id: true, fieldName: true } },
+        jobFields: { include: { field: { select: { id: true, fieldName: true } } } },
         jobType: { select: { id: true, name: true } },
         assignedTo: { select: { id: true, name: true } },
       },

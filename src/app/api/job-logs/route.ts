@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       include: {
         job: { select: { id: true, title: true, customer: { select: { name: true } } } },
         contractor: { select: { id: true, name: true } },
-        machine: { select: { id: true, name: true, registration: true } },
+        logMachines: { include: { machine: { select: { id: true, name: true, registration: true } } } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
 
     const body = await parseBody<{
       jobId: number;
-      machineId?: number;
+      machineIds?: number[];
       quantityCompleted: number;
       hoursWorked: number;
       notes?: string;
@@ -72,15 +72,17 @@ export async function POST(request: Request) {
       data: {
         jobId: body.jobId,
         contractorId,
-        machineId: body.machineId,
         quantityCompleted: body.quantityCompleted,
         hoursWorked: body.hoursWorked,
         notes: body.notes,
         photoUrl: body.photoUrl,
+        logMachines: body.machineIds?.length
+          ? { create: body.machineIds.map((machineId) => ({ machineId })) }
+          : undefined,
       },
       include: {
         contractor: { select: { id: true, name: true } },
-        machine: { select: { id: true, name: true } },
+        logMachines: { include: { machine: { select: { id: true, name: true } } } },
       },
     });
 

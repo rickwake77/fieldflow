@@ -14,7 +14,7 @@ const include = {
   jobs: {
     include: {
       jobType: { select: { id: true, name: true } },
-      field: { select: { id: true, fieldName: true } },
+      jobFields: { include: { field: { select: { id: true, fieldName: true } } } },
       assignedTo: { select: { id: true, name: true } },
     },
   },

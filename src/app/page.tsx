@@ -3588,8 +3588,8 @@ export default function FieldFlowApp() {
             <span className="font-bold">FieldFlow</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-base text-stone-500">{session?.user?.name?.split(" ")[0]}</span>
-            <button onClick={() => signOut({ callbackUrl: "/login" })} className="text-base text-stone-400 hover:text-stone-600 transition">
+            <span className="text-lg text-stone-500">{session?.user?.name?.split(" ")[0]}</span>
+            <button onClick={() => signOut({ callbackUrl: "/login" })} className="text-lg text-stone-400 hover:text-stone-600 transition">
               Sign Out
             </button>
           </div>

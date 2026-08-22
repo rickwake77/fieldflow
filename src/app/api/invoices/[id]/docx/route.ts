@@ -12,6 +12,7 @@ import path from "path";
 import fs from "fs/promises";
 import JSZip from "jszip";
 import { requireAdmin } from "@/lib/auth-guards";
+import { getBusinessProfile, formatAddressLine, type BusinessProfile } from "@/lib/business-profile";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -32,6 +33,46 @@ const esc = (text: string) =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#x2019;");
+
+// Swaps a known literal fragment of the template's raw OOXML for a new one.
+// Only ever does an exact string match — never regex — so a template edit
+// that changes the wording just makes this a no-op (with a warning) instead
+// of producing a mangled document.
+function replaceLiteral(xml: string, oldStr: string, newStr: string, opts?: { all?: boolean }): string {
+  if (!xml.includes(oldStr)) {
+    console.warn(`invoice docx: letterhead text not found in template, leaving default: "${oldStr.slice(0, 50)}..."`);
+    return xml;
+  }
+  return opts?.all ? xml.split(oldStr).join(newStr) : xml.replace(oldStr, newStr);
+}
+
+// The letterhead (company name, trade line, address, phone) lives in the
+// template's Word header, which survives untouched by the <w:body> rebuild
+// below — so it needs its own targeted text swap.
+function applyBusinessProfileToHeader(xml: string, profile: BusinessProfile): string {
+  let out = xml;
+  out = replaceLiteral(out, "<w:t>M. &amp; J. WAKEHAM &amp; SON</w:t>", `<w:t>${esc(profile.legalName)}</w:t>`);
+  out = replaceLiteral(out, "<w:t>(Agricultural Contractors)</w:t>", `<w:t>${esc(profile.tradeDescription)}</w:t>`);
+  out = replaceLiteral(
+    out,
+    `<w:r w:rsidRPr="00BD3D06"><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/></w:rPr><w:t xml:space="preserve">Little Allers · </w:t></w:r><w:proofErr w:type="spellStart"/><w:r w:rsidRPr="00BD3D06"><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/></w:rPr><w:t>Avonwick</w:t></w:r><w:proofErr w:type="spellEnd"/><w:r w:rsidRPr="00BD3D06"><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/></w:rPr><w:t xml:space="preserve"> · South Brent · Devon · TQ10 9HA</w:t></w:r>`,
+    `<w:r w:rsidRPr="00BD3D06"><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/></w:rPr><w:t xml:space="preserve">${esc(formatAddressLine(profile.addressLine))}</w:t></w:r>`
+  );
+  out = replaceLiteral(out, "<w:t>Tel: 07811 266 791 · 07855 427 510</w:t>", `<w:t>${profile.phone ? `Tel: ${esc(profile.phone)}` : ""}</w:t>`);
+  return out;
+}
+
+// The BACS/VAT line lives in the template's Word footer, similarly outside
+// the <w:body> rebuild. The bank details appear twice in the raw XML — a
+// modern text box plus a legacy fallback copy for older Word versions — so
+// both copies need updating together.
+function applyBusinessProfileToFooter(xml: string, profile: BusinessProfile): string {
+  let out = xml;
+  out = replaceLiteral(out, "<w:t>30-93-14</w:t>", `<w:t>${esc(profile.bankSortCode)}</w:t>`, { all: true });
+  out = replaceLiteral(out, "<w:t>05105229</w:t>", `<w:t>${esc(profile.bankAccountNumber)}</w:t>`, { all: true });
+  out = replaceLiteral(out, "<w:t>: 501 1588 83</w:t>", `<w:t>: ${esc(profile.vatNumber)}</w:t>`);
+  return out;
+}
 
 // ─── XML Builders ───────────────────────────────────────────────
 
@@ -220,8 +261,9 @@ function extractSectPr(xml: string): string {
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const { response } = await requireAdmin();
+    const { session, response } = await requireAdmin();
     if (response) return response;
+    const organisationId = (session.user as any).organisationId;
 
     const { id } = await params;
     const invoice = await prisma.invoice.findUnique({
@@ -254,6 +296,19 @@ export async function GET(_request: Request, { params }: Params) {
     const docXmlFile = zip.file("word/document.xml");
     if (!docXmlFile) throw new Error("Invalid template: missing document.xml");
     const originalDocXml = await docXmlFile.async("string");
+
+    const profile = await getBusinessProfile(organisationId);
+
+    const headerFile = zip.file("word/header1.xml");
+    if (headerFile) {
+      const headerXml = await headerFile.async("string");
+      zip.file("word/header1.xml", applyBusinessProfileToHeader(headerXml, profile));
+    }
+    const footerFile = zip.file("word/footer1.xml");
+    if (footerFile) {
+      const footerXml = await footerFile.async("string");
+      zip.file("word/footer1.xml", applyBusinessProfileToFooter(footerXml, profile));
+    }
 
     const invoiceDate = new Date(invoice.invoiceDate);
     const dateStr = fmtDate(invoiceDate);

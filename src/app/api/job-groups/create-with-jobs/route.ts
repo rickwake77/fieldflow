@@ -23,6 +23,7 @@ export async function POST(request: Request) {
       fieldIds?: number[];
       assignedToUserId?: number;
       plannedDate?: string;
+      noLogRequired?: boolean;
       items: Array<{ jobTypeId: number; notes?: string }>;
     }>(request);
 
@@ -65,6 +66,7 @@ export async function POST(request: Request) {
               description: item.notes || null,
               unitType: jt.billingUnit,
               status: "scheduled" as const,
+              noLogRequired: body.noLogRequired ?? false,
               jobFields: body.fieldIds?.length
                 ? { create: body.fieldIds.map((fieldId) => ({ fieldId })) }
                 : undefined,

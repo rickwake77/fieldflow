@@ -20,12 +20,36 @@ model Organisation {
   name      String
   createdAt DateTime   @default(now()) @map("created_at")
 
-  users     User[]
-  jobTypes  JobType[]
-  machines  Machine[]
-  jobGroups JobGroup[]
+  users           User[]
+  jobTypes        JobType[]
+  machines        Machine[]
+  jobGroups       JobGroup[]
+  businessProfile BusinessProfile?
 
   @@map("organisations")
+}
+
+// The org's own letterhead details — legal name, trade line, address, bank
+// details, VAT number — read into invoice PDF/docx generation instead of
+// being hardcoded in the template/component. One row per org; if none
+// exists yet, the app falls back to a hardcoded default (see
+// src/lib/business-profile.ts) so existing invoices don't change until an
+// admin actually fills this in.
+model BusinessProfile {
+  id                Int      @id @default(autoincrement())
+  organisationId    Int      @unique @map("organisation_id")
+  legalName         String   @map("legal_name")
+  tradeDescription  String?  @map("trade_description")
+  addressLine       String?  @map("address_line") @db.Text
+  phone             String?
+  bankSortCode      String?  @map("bank_sort_code")
+  bankAccountNumber String?  @map("bank_account_number")
+  vatNumber         String?  @map("vat_number")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@map("business_profiles")
 }
 
 model User {
@@ -168,6 +192,10 @@ model Job {
   plannedDate       DateTime?     @map("planned_date") @db.Date
   estimatedQuantity Decimal?      @map("estimated_quantity") @db.Decimal(10, 2)
   unitType          String?       @map("unit_type")
+  // Set on jobs that don't involve field execution to log (supply only,
+  // hire, etc.) — skips the "at least one work log" requirement to mark
+  // the job completed.
+  noLogRequired     Boolean       @default(false) @map("no_log_required")
   status            JobStatus     @default(scheduled)
   createdBy         Int?          @map("created_by")
   createdAt         DateTime      @default(now()) @map("created_at")

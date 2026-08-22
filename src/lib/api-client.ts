@@ -195,4 +195,9 @@ export const api = {
     request<any>(`/job-groups/${id}/apply`, { method: "POST", body: JSON.stringify(data) }),
   createWorkPackage: (data: any) =>
     request<any>("/job-groups/create-with-jobs", { method: "POST", body: JSON.stringify(data) }),
+
+  // Business Profile (invoice letterhead)
+  getBusinessProfile: () => request<any>("/business-profile"),
+  updateBusinessProfile: (data: any) =>
+    request<any>("/business-profile", { method: "PATCH", body: JSON.stringify(data) }),
 };

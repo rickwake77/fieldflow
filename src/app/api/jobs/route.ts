@@ -62,6 +62,7 @@ export async function POST(request: Request) {
       plannedDate?: string;
       estimatedQuantity?: number;
       unitType?: string;
+      noLogRequired?: boolean;
     }>(request);
 
     if (!body.customerId || !body.jobTypeId || !body.title) {
@@ -78,6 +79,7 @@ export async function POST(request: Request) {
         plannedDate: body.plannedDate ? new Date(body.plannedDate) : null,
         estimatedQuantity: body.estimatedQuantity,
         unitType: body.unitType,
+        noLogRequired: body.noLogRequired ?? false,
         createdBy,
         jobFields: body.fieldIds?.length
           ? { create: body.fieldIds.map((fieldId) => ({ fieldId })) }

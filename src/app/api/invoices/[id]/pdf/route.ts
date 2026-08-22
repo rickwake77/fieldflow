@@ -9,13 +9,15 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { createElement } from "react";
 import { InvoicePdf } from "@/lib/invoice-pdf";
 import { requireAdmin } from "@/lib/auth-guards";
+import { getBusinessProfile } from "@/lib/business-profile";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const { response } = await requireAdmin();
+    const { session, response } = await requireAdmin();
     if (response) return response;
+    const organisationId = (session.user as any).organisationId;
 
     const { id } = await params;
     const invoice = await prisma.invoice.findUnique({
@@ -40,8 +42,10 @@ export async function GET(_request: Request, { params }: Params) {
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
     }
 
+    const profile = await getBusinessProfile(organisationId);
+
     // react-pdf's types require a ReactElement<DocumentProps>; InvoicePdf renders one but isn't typed as returning one
-    const buffer = await renderToBuffer(createElement(InvoicePdf, { invoice }) as any);
+    const buffer = await renderToBuffer(createElement(InvoicePdf, { invoice, profile }) as any);
 
     return new NextResponse(buffer as unknown as BodyInit, {
       status: 200,

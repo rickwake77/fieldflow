@@ -5,6 +5,7 @@
 
 import React from "react";
 import { Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
+import { DEFAULT_BUSINESS_PROFILE, formatAddressLine, type BusinessProfile } from "@/lib/business-profile";
 
 const fmtCurrency = (n: number) => `£${n.toFixed(2)}`;
 
@@ -53,7 +54,8 @@ const styles = StyleSheet.create({
   footer: { position: "absolute", bottom: 32, left: 48, right: 48, textAlign: "center", fontSize: 8, color: "#555555" },
 });
 
-export function InvoicePdf({ invoice }: { invoice: any }) {
+export function InvoicePdf({ invoice, profile }: { invoice: any; profile?: BusinessProfile }) {
+  const biz = profile || DEFAULT_BUSINESS_PROFILE;
   const dateStr = fmtDate(new Date(invoice.invoiceDate));
   const subtotal = Number(invoice.subtotal);
   const vat = Number(invoice.vat);
@@ -67,10 +69,10 @@ export function InvoicePdf({ invoice }: { invoice: any }) {
     <Document>
       <Page size="A4" style={styles.page}>
         <View style={styles.headerBlock}>
-          <Text style={styles.companyName}>M. & J. WAKEHAM & SON</Text>
-          <Text style={styles.companySub}>(Agricultural Contractors)</Text>
-          <Text style={styles.companyLine}>Little Allers · Avonwick · South Brent · Devon · TQ10 9HA</Text>
-          <Text style={styles.companyLine}>Tel: 07811 266 791 · 07855 427 510</Text>
+          <Text style={styles.companyName}>{biz.legalName}</Text>
+          {biz.tradeDescription && <Text style={styles.companySub}>{biz.tradeDescription}</Text>}
+          {biz.addressLine && <Text style={styles.companyLine}>{formatAddressLine(biz.addressLine)}</Text>}
+          {biz.phone && <Text style={styles.companyLine}>Tel: {biz.phone}</Text>}
         </View>
 
         <View style={styles.headerRow}>
@@ -126,7 +128,9 @@ export function InvoicePdf({ invoice }: { invoice: any }) {
         </View>
 
         <Text style={styles.footer}>
-          For BACS Payments: 30-93-14 · 05105229{"\n"}VAT Reg No: 501 1588 83
+          {biz.bankSortCode && biz.bankAccountNumber && `For BACS Payments: ${biz.bankSortCode} · ${biz.bankAccountNumber}`}
+          {biz.bankSortCode && biz.bankAccountNumber && biz.vatNumber ? "\n" : ""}
+          {biz.vatNumber && `VAT Reg No: ${biz.vatNumber}`}
         </Text>
       </Page>
     </Document>

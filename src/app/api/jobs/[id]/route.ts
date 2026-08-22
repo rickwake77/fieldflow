@@ -70,6 +70,7 @@ export async function PATCH(request: Request, { params }: Params) {
       unitType: string;
       status: string;
       fieldIds: number[];
+      noLogRequired: boolean;
     }>>(request);
 
     if (!isManager(role)) {
@@ -77,6 +78,15 @@ export async function PATCH(request: Request, { params }: Params) {
       const fields = Object.keys(body);
       if (fields.some((f) => f !== "status")) {
         return error("Contractors can only update job status", 403);
+      }
+    }
+
+    // A job can't be marked completed with nothing actually logged against
+    // it, unless it's flagged as not needing logging (supply only, hire, etc.)
+    if (body.status === "completed" && !(body.noLogRequired ?? existing.noLogRequired)) {
+      const logCount = await prisma.jobLog.count({ where: { jobId: Number(id) } });
+      if (logCount === 0) {
+        return error("Log some work against this job before marking it completed");
       }
     }
 

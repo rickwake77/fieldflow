@@ -1,15 +1,16 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
+import theme from "../../theme.config.js";
 
 export const metadata: Metadata = {
-  title: "FieldFlow — Farm Contracting Management",
-  description: "Manage jobs, logging, and invoicing for agricultural contracting",
+  title: `${theme.appName} — ${theme.tagline}`,
+  description: theme.description,
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "FieldFlow",
+    title: theme.shortName,
   },
 };
 
@@ -23,7 +24,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: "#245a1e",
+  themeColor: theme.themeColor,
 };
 
 export default function RootLayout({
@@ -38,7 +39,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/icon-180.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="FieldFlow" />
+        <meta name="apple-mobile-web-app-title" content={theme.shortName} />
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body className="bg-stone-50 text-stone-900 antialiased">

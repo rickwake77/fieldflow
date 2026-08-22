@@ -271,6 +271,7 @@ function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean;
   const blankForm = () => ({
     customerId: "", fieldIds: [] as string[], jobTypeId: "", assignedToUserId: "",
     title: "", description: "", plannedDate: todayStr(), estimatedQuantity: "", unitType: "",
+    noLogRequired: false,
   });
   const [form, setForm] = useState(blankForm());
   const [titleAuto, setTitleAuto] = useState(true);
@@ -281,6 +282,7 @@ function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean;
   const blankPackageForm = () => ({
     name: "", customerId: "", templateId: "",
     fieldIds: [] as string[], assignedToUserId: "", plannedDate: todayStr(),
+    noLogRequired: false,
     items: [] as Array<{ jobTypeId: string; notes: string }>,
   });
   const [packageForm, setPackageForm] = useState(blankPackageForm());
@@ -339,6 +341,7 @@ function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean;
         plannedDate: form.plannedDate || undefined,
         estimatedQuantity: form.estimatedQuantity ? Number(form.estimatedQuantity) : undefined,
         unitType: form.unitType || undefined,
+        noLogRequired: form.noLogRequired,
       });
       await refresh();
       handleClose();
@@ -396,6 +399,7 @@ function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean;
         fieldIds: packageForm.fieldIds.map(Number),
         assignedToUserId: packageForm.assignedToUserId ? Number(packageForm.assignedToUserId) : undefined,
         plannedDate: packageForm.plannedDate || undefined,
+        noLogRequired: packageForm.noLogRequired,
         items: validPackageItems.map(item => ({ jobTypeId: Number(item.jobTypeId), notes: item.notes || undefined })),
       });
       await refresh();
@@ -556,6 +560,11 @@ function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean;
               <textarea className={wizardInputClass} placeholder="Additional notes..." rows={3} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
             </FormField>
 
+            <label className="flex items-start gap-2.5 px-1 py-2 cursor-pointer">
+              <input type="checkbox" className="accent-field-600 w-4 h-4 flex-shrink-0 mt-0.5" checked={form.noLogRequired} onChange={e => setForm(f => ({ ...f, noLogRequired: e.target.checked }))} />
+              <span className="text-sm text-stone-600">This job doesn't need work logged (supply only, hire, etc.) — it can be marked completed without any logged work</span>
+            </label>
+
             <WizardNav onBack={() => setWizardStep(2)} onNext={() => setWizardStep(4)} />
           </>
         )}
@@ -703,6 +712,10 @@ function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean;
             <FormField label="Planned Date">
               <input className={`${wizardInputClass} appearance-none block`} type="date" value={packageForm.plannedDate} onChange={e => setPackageForm(f => ({ ...f, plannedDate: e.target.value }))} />
             </FormField>
+            <label className="flex items-start gap-2.5 px-1 py-2 cursor-pointer">
+              <input type="checkbox" className="accent-field-600 w-4 h-4 flex-shrink-0 mt-0.5" checked={packageForm.noLogRequired} onChange={e => setPackageForm(f => ({ ...f, noLogRequired: e.target.checked }))} />
+              <span className="text-sm text-stone-600">These jobs don't need work logged (supply only, hire, etc.) — they can be marked completed without any logged work</span>
+            </label>
             <WizardNav onBack={() => setWizardStep(3)} onNext={() => setWizardStep(5)} />
           </>
         )}
@@ -1156,7 +1169,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
-  const [editForm, setEditForm] = useState({ assignedToUserId: "", plannedDate: "", title: "", description: "", estimatedQuantity: "" });
+  const [editForm, setEditForm] = useState({ assignedToUserId: "", plannedDate: "", title: "", description: "", estimatedQuantity: "", noLogRequired: false });
 
   const loadJob = useCallback(async () => {
     setLoading(true);
@@ -1186,6 +1199,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
       title: job.title || "",
       description: job.description || "",
       estimatedQuantity: job.estimatedQuantity ? String(Number(job.estimatedQuantity)) : "",
+      noLogRequired: !!job.noLogRequired,
     });
     setShowEditForm(true);
   };
@@ -1199,6 +1213,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
         title: editForm.title,
         description: editForm.description || undefined,
         estimatedQuantity: editForm.estimatedQuantity ? Number(editForm.estimatedQuantity) : undefined,
+        noLogRequired: editForm.noLogRequired,
       });
       await loadJob();
       await refresh();
@@ -1280,6 +1295,11 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
           <div><span className="text-stone-500">Estimated:</span> <span className="font-medium">{estQty ? `${estQty} ${job.unitType || "units"}` : "—"}</span></div>
         </div>
         {job.description && <p className="mt-3 text-sm text-stone-500 italic">{job.description}</p>}
+        {job.noLogRequired && (
+          <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-harvest-50 text-harvest-700 text-xs font-semibold">
+            No work log required to complete
+          </div>
+        )}
 
         {/* Status actions — large, stacked, full-width for easy tapping in the field */}
         <div className="flex flex-col gap-3 mt-5 pt-4 border-t border-stone-100">
@@ -1301,13 +1321,18 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
             </button>
           )}
           {job.status === "in_progress" && (
-            <button
-              onClick={() => handleStatusChange("completed")}
-              disabled={statusUpdating}
-              className="w-full py-4 rounded-2xl text-base font-bold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm"
-            >
-              Mark Completed
-            </button>
+            <>
+              <button
+                onClick={() => handleStatusChange("completed")}
+                disabled={statusUpdating || (logs.length === 0 && !job.noLogRequired)}
+                className="w-full py-4 rounded-2xl text-base font-bold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm"
+              >
+                Mark Completed
+              </button>
+              {logs.length === 0 && !job.noLogRequired && (
+                <p className="text-sm text-stone-400 text-center -mt-1.5">Log some work first — a job can't be completed with nothing logged</p>
+              )}
+            </>
           )}
           {job.status === "completed" && (
             <button
@@ -1515,6 +1540,10 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
         <FormField label="Description">
           <textarea className={inputClass} rows={3} placeholder="Notes, instructions..." value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} />
         </FormField>
+        <label className="flex items-start gap-2.5 px-1 py-2 mb-2 cursor-pointer">
+          <input type="checkbox" className="accent-field-600 w-4 h-4 flex-shrink-0 mt-0.5" checked={editForm.noLogRequired} onChange={e => setEditForm(f => ({ ...f, noLogRequired: e.target.checked }))} />
+          <span className="text-sm text-stone-600">This job doesn't need work logged (supply only, hire, etc.) — it can be marked completed without any logged work</span>
+        </label>
         <div className="flex gap-2 mt-2">
           <Btn variant="ghost" className="flex-1" onClick={() => setShowEditForm(false)}>Cancel</Btn>
           <Btn className="flex-[2]" onClick={handleEditSave} disabled={editSaving || !editForm.title}>
@@ -2561,12 +2590,95 @@ function DataToolCard({ label, count, columnsHint, exportUrl, importUrl, filenam
   );
 }
 
+// Editable letterhead — legal name, trade line, address, bank/VAT details —
+// used by both the PDF and docx invoice generators instead of being
+// hardcoded in code/template. Loads whatever the server currently falls
+// back to (real values, even before anything's been saved here), so the
+// form is never blank.
+function BusinessProfileCard() {
+  const blank = { legalName: "", tradeDescription: "", addressLine: "", phone: "", bankSortCode: "", bankAccountNumber: "", vatNumber: "" };
+  const [form, setForm] = useState(blank);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api.getBusinessProfile();
+        setForm({ ...blank, ...data });
+      } catch (err: any) {
+        alert("Error loading business profile: " + err.message);
+      }
+      setLoading(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const data = await api.updateBusinessProfile(form);
+      setForm({ ...blank, ...data });
+      setSavedAt(Date.now());
+    } catch (err: any) {
+      alert("Error saving business profile: " + err.message);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <Card className="p-5 mb-4">
+      <div className="mb-4">
+        <div className="font-bold text-base">Business Profile</div>
+        <div className="text-sm text-stone-500">Your letterhead details — used on every PDF and Word invoice</div>
+      </div>
+      {loading ? (
+        <Spinner />
+      ) : (
+        <>
+          <FormField label="Legal Name" required>
+            <input className={inputClass} value={form.legalName} onChange={e => setForm(f => ({ ...f, legalName: e.target.value }))} />
+          </FormField>
+          <FormField label="Trade Description">
+            <input className={inputClass} placeholder="e.g. (Agricultural Contractors)" value={form.tradeDescription} onChange={e => setForm(f => ({ ...f, tradeDescription: e.target.value }))} />
+          </FormField>
+          <FormField label="Address">
+            <textarea className={inputClass} rows={2} placeholder="Street, Town, County, Postcode" value={form.addressLine} onChange={e => setForm(f => ({ ...f, addressLine: e.target.value }))} />
+          </FormField>
+          <FormField label="Phone">
+            <input className={inputClass} value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+          </FormField>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label="Bank Sort Code">
+              <input className={inputClass} placeholder="00-00-00" value={form.bankSortCode} onChange={e => setForm(f => ({ ...f, bankSortCode: e.target.value }))} />
+            </FormField>
+            <FormField label="Bank Account Number">
+              <input className={inputClass} value={form.bankAccountNumber} onChange={e => setForm(f => ({ ...f, bankAccountNumber: e.target.value }))} />
+            </FormField>
+          </div>
+          <FormField label="VAT Registration Number">
+            <input className={inputClass} value={form.vatNumber} onChange={e => setForm(f => ({ ...f, vatNumber: e.target.value }))} />
+          </FormField>
+          <div className="flex items-center gap-3 mt-2">
+            <Btn onClick={handleSave} disabled={saving || !form.legalName.trim()}>
+              {saving ? "Saving..." : "Save Business Profile"}
+            </Btn>
+            {savedAt && !saving && <span className="text-sm text-field-700 font-semibold">Saved</span>}
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
 function DataToolsView() {
   const { customers, jobTypes, machines, refresh } = useApp();
 
   return (
     <div>
       <PageHeader title="Data Tools" subtitle="Bulk import and export via CSV — admin only" />
+      <BusinessProfileCard />
       <div className="space-y-4">
         <DataToolCard
           label="Customers" count={customers.length}

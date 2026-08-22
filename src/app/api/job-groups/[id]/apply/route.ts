@@ -18,6 +18,7 @@ export async function POST(request: Request, { params }: Params) {
       assignedToUserId?: number;
       fieldIds?: number[];
       plannedDate?: string;
+      noLogRequired?: boolean;
       // Optional per-item overrides: keyed by jobTypeId
       overrides?: Record<string, { fieldIds?: number[]; plannedDate?: string; assignedToUserId?: number }>;
     }>(request);
@@ -67,6 +68,7 @@ export async function POST(request: Request, { params }: Params) {
               description: item.notes ?? null,
               unitType: item.jobType.billingUnit,
               status: "scheduled" as const,
+              noLogRequired: body.noLogRequired ?? false,
               jobFields: fieldIds.length ? { create: fieldIds.map((fieldId) => ({ fieldId })) } : undefined,
             };
           }),

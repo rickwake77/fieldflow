@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import pkg from "../../../package.json";
+import theme from "../../../theme.config.js";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -158,7 +160,7 @@ export default function LoginPage() {
           )}
         </div>
 
-        <p className="text-center text-white/20 text-sm mt-6">FieldFlow v0.1.0</p>
+        <p className="text-center text-white/20 text-sm mt-6">{theme.appName} v{pkg.version}</p>
       </div>
     </div>
   );

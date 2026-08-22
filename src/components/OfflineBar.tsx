@@ -89,7 +89,7 @@ export default function OfflineBar({ onSynced }: { onSynced?: () => void }) {
     <>
       {/* Offline banner */}
       {!online && (
-        <div className="bg-amber-500 text-white px-4 py-2 text-center text-sm font-medium flex items-center justify-center gap-2 z-[60] relative">
+        <div className="bg-amber-500 text-white px-4 py-2 text-center text-base font-medium flex items-center justify-center gap-2 z-[60] relative">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <line x1="1" y1="1" x2="23" y2="23" />
             <path d="M16.72 11.06A10.94 10.94 0 0119 12.55" />
@@ -108,9 +108,9 @@ export default function OfflineBar({ onSynced }: { onSynced?: () => void }) {
         <div className="bg-blue-50 border-b border-blue-200 px-4 py-2 flex items-center justify-between z-[60] relative">
           <button
             onClick={() => setShowQueue(!showQueue)}
-            className="text-sm text-blue-700 font-medium flex items-center gap-1.5"
+            className="text-base text-blue-700 font-medium flex items-center gap-1.5"
           >
-            <span className="w-5 h-5 rounded-full bg-blue-500 text-white text-[11px] font-bold flex items-center justify-center">
+            <span className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center">
               {queueCount}
             </span>
             pending {queueCount === 1 ? "change" : "changes"}
@@ -121,7 +121,7 @@ export default function OfflineBar({ onSynced }: { onSynced?: () => void }) {
           <button
             onClick={handleSync}
             disabled={syncing || !online}
-            className="px-3 py-1 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            className="px-3 py-1 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
           >
             {syncing ? (
               <>
@@ -147,7 +147,7 @@ export default function OfflineBar({ onSynced }: { onSynced?: () => void }) {
         <div className="bg-blue-50 border-b border-blue-200 px-4 pb-3 z-[60] relative">
           <div className="space-y-1.5">
             {queueItems.map((item) => (
-              <div key={item.id} className="flex items-center gap-2 text-xs text-blue-700 bg-white rounded-lg px-3 py-2 border border-blue-100">
+              <div key={item.id} className="flex items-center gap-2 text-sm text-blue-700 bg-white rounded-lg px-3 py-2 border border-blue-100">
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
                 <div className="flex-1 min-w-0 truncate">{item.description}</div>
                 <div className="text-blue-400 flex-shrink-0">
@@ -161,7 +161,7 @@ export default function OfflineBar({ onSynced }: { onSynced?: () => void }) {
 
       {/* Sync result toast */}
       {lastSyncResult && (
-        <div className="fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-[70] bg-stone-800 text-white px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg flex items-center gap-2 animate-[slideUp_0.3s_ease-out]">
+        <div className="fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-[70] bg-stone-800 text-white px-4 py-2.5 rounded-xl text-base font-medium shadow-lg flex items-center gap-2 animate-[slideUp_0.3s_ease-out]">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20 6L9 17l-5-5" />
           </svg>

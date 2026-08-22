@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
         jobFields: { include: { field: { select: { id: true, fieldName: true, hectares: true } } } },
         jobType: { select: { id: true, name: true, billingUnit: true, defaultRate: true } },
         assignedTo: { select: { id: true, name: true } },
-        _count: { select: { jobLogs: true } },
+        _count: { select: { jobLogs: true, invoiceItems: true } },
       },
       orderBy: { plannedDate: "asc" },
     });

@@ -11,19 +11,25 @@ export type ImportResult = {
   created: number;
   updated: number;
   errors: { row: number; message: string }[];
+  warnings: { row: number; message: string }[];
 };
+
+// Most rows upsert cleanly ("created"/"updated"). A row can also come back
+// flagged with a warning -- e.g. a possible-duplicate name that was still
+// created because the caller can't safely assume it's the same record.
+export type UpsertOutcome = "created" | "updated" | { outcome: "created" | "updated"; warning: string };
 
 export async function processCsvUpsert<T>(
   csv: string,
   parseRow: (raw: Record<string, string>, rowNum: number) => T | { error: string },
-  upsert: (row: T) => Promise<"created" | "updated">
+  upsert: (row: T) => Promise<UpsertOutcome>
 ): Promise<ImportResult> {
   const parsed = Papa.parse<Record<string, string>>(csv, {
     header: true,
     skipEmptyLines: true,
   });
 
-  const result: ImportResult = { created: 0, updated: 0, errors: [] };
+  const result: ImportResult = { created: 0, updated: 0, errors: [], warnings: [] };
 
   for (let i = 0; i < parsed.data.length; i++) {
     const rowNum = i + 2; // +1 for zero-index, +1 for the header row
@@ -34,7 +40,12 @@ export async function processCsvUpsert<T>(
     }
     try {
       const outcome = await upsert(parsedRow as T);
-      result[outcome]++;
+      if (typeof outcome === "string") {
+        result[outcome]++;
+      } else {
+        result[outcome.outcome]++;
+        result.warnings.push({ row: rowNum, message: outcome.warning });
+      }
     } catch (err: any) {
       result.errors.push({ row: rowNum, message: err?.message || "Unknown error" });
     }

@@ -42,6 +42,16 @@ export async function POST(request: Request) {
           await prisma.customer.update({ where: { id }, data });
           return "updated";
         }
+        // No id in the row -- match by name so re-importing the same file
+        // (e.g. one exported/edited without an id column) updates the
+        // existing customer instead of creating a duplicate.
+        const existing = await prisma.customer.findFirst({
+          where: { name: { equals: data.name, mode: "insensitive" } },
+        });
+        if (existing) {
+          await prisma.customer.update({ where: { id: existing.id }, data });
+          return "updated";
+        }
         await prisma.customer.create({ data });
         return "created";
       }

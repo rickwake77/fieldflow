@@ -104,6 +104,55 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+// Excel-style per-column filtering for desktop tables: each column gets a
+// small text input under its header, and typing narrows rows to those whose
+// value for that column contains the text (case-insensitive). Filters
+// combine with AND across columns, and stack on top of any other filter
+// (e.g. a status pill) already narrowing the row list passed in.
+type ColumnFilter<T> = { key: string; label: string; get: (row: T) => string };
+
+function useColumnFilters<T>(rows: T[], columns: ColumnFilter<T>[]) {
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const setFilter = (key: string, value: string) => setFilters((f) => ({ ...f, [key]: value }));
+  const clearFilters = () => setFilters({});
+  const active = Object.values(filters).some((v) => v.trim());
+  const filtered = active
+    ? rows.filter((row) =>
+        columns.every((col) => {
+          const q = filters[col.key]?.trim().toLowerCase();
+          if (!q) return true;
+          return col.get(row).toLowerCase().includes(q);
+        })
+      )
+    : rows;
+  return { filters, setFilter, clearFilters, filtered, active };
+}
+
+function FilterRow<T>({ columns, filters, onChange, trailingCells = 0 }: {
+  columns: ColumnFilter<T>[];
+  filters: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+  trailingCells?: number;
+}) {
+  return (
+    <tr className="border-b border-stone-100 bg-stone-50/70">
+      {columns.map((col) => (
+        <th key={col.key} className="px-4 py-1.5 font-normal">
+          <input
+            value={filters[col.key] || ""}
+            onChange={(e) => onChange(col.key, e.target.value)}
+            placeholder="Filter..."
+            className="w-full px-2 py-1 text-xs font-normal text-stone-700 border border-stone-200 rounded bg-white focus:outline-none focus:border-field-400 focus:ring-1 focus:ring-field-400/30"
+          />
+        </th>
+      ))}
+      {Array.from({ length: trailingCells }).map((_, i) => (
+        <th key={`trailing-${i}`} />
+      ))}
+    </tr>
+  );
+}
+
 function Card({ children, className = "", onClick }: { children: ReactNode; className?: string; onClick?: () => void }) {
   return (
     <div
@@ -1142,7 +1191,19 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
   const [filter, setFilter] = useState(initialFilter && initialFilter !== "create" ? initialFilter : "all");
   const [showCreate, setShowCreate] = useState(initialFilter === "create" && canManageJobs);
 
-  const filtered = filter === "all" ? jobs : (filter === "active" ? jobs.filter((j: any) => j.status === "scheduled" || j.status === "in_progress") : jobs.filter((j: any) => j.status === filter));
+  const statusFiltered = filter === "all" ? jobs : (filter === "active" ? jobs.filter((j: any) => j.status === "scheduled" || j.status === "in_progress") : jobs.filter((j: any) => j.status === filter));
+
+  const jobFilterColumns: ColumnFilter<any>[] = [
+    { key: "job", label: "Job", get: (j) => j.title || "" },
+    { key: "customer", label: "Customer", get: (j) => j.customer?.name || "" },
+    { key: "field", label: "Field", get: (j) => fieldNames(j) || "" },
+    { key: "type", label: "Type", get: (j) => j.jobType?.name || "" },
+    { key: "assigned", label: "Assigned To", get: (j) => j.assignedTo?.name || "" },
+    { key: "date", label: "Date", get: (j) => fmtDate(j.plannedDate) },
+    { key: "qty", label: "Est. Qty", get: (j) => j.estimatedQuantity ? `${Number(j.estimatedQuantity)} ${j.unitType || "units"}` : "" },
+    { key: "status", label: "Status", get: (j) => statusLabel(j.status) },
+  ];
+  const { filters: colFilters, setFilter: setColFilter, clearFilters, filtered, active: filtersActive } = useColumnFilters(statusFiltered, jobFilterColumns);
 
   return (
     <div>
@@ -1152,13 +1213,16 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
         action={canManageJobs ? <Btn onClick={() => setShowCreate(true)}>+ New Job</Btn> : undefined}
       />
 
-      <div className="flex gap-2 mb-5 flex-wrap">
+      <div className="flex gap-2 mb-5 flex-wrap items-center">
         {["all", "active", "scheduled", "in_progress", "completed"].map(f => (
           <button key={f} onClick={() => setFilter(f)}
             className={`px-4 py-2.5 rounded-xl text-base font-semibold transition ${filter === f ? "bg-field-100 text-field-700" : "text-stone-500 hover:bg-stone-100"}`}>
             {f === "all" ? "All" : f === "active" ? "Active" : statusLabel(f)}
           </button>
         ))}
+        {filtersActive && (
+          <Btn variant="secondary" onClick={clearFilters} className="!px-4 !py-2 !text-base">Reset Filters</Btn>
+        )}
       </div>
 
       {/* Desktop table */}
@@ -1170,6 +1234,7 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
                 <th key={h} className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-stone-500">{h}</th>
               ))}
             </tr>
+            <FilterRow columns={jobFilterColumns} filters={colFilters} onChange={setColFilter} />
           </thead>
           <tbody>
             {filtered.map((job: any) => (
@@ -1186,7 +1251,12 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
             ))}
           </tbody>
         </table>
-        {filtered.length === 0 && <div className="text-center py-12 text-stone-400 text-sm">No jobs found</div>}
+        {filtered.length === 0 && (
+          <div className="text-center py-12">
+            <div className="text-stone-400 text-sm mb-3">No jobs found</div>
+            {filtersActive && <Btn variant="secondary" onClick={clearFilters}>Reset Filters</Btn>}
+          </div>
+        )}
       </Card>
 
       {/* Mobile cards */}
@@ -1203,7 +1273,12 @@ function JobsView({ onSelectJob, initialFilter }: { onSelectJob: (job: any) => v
             </div>
           </Card>
         ))}
-        {filtered.length === 0 && <div className="text-center py-12 text-stone-400 text-base">No jobs found</div>}
+        {filtered.length === 0 && (
+          <div className="text-center py-12">
+            <div className="text-stone-400 text-base mb-3">No jobs found</div>
+            {filtersActive && <Btn variant="secondary" onClick={clearFilters}>Reset Filters</Btn>}
+          </div>
+        )}
       </div>
 
       {/* Create Job Wizard */}
@@ -1253,6 +1328,7 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
   const estQty = Number(job.estimatedQuantity || 0);
   const progress = estQty > 0 ? Math.min(100, Math.round((totalQty / estQty) * 100)) : 0;
   const assignableUsers = users.filter((u: any) => u.active);
+  const invoiced = (job.invoiceItems || []).length > 0;
 
   const openEdit = () => {
     setEditForm({
@@ -1397,24 +1473,35 @@ function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
             </>
           )}
           {job.status === "completed" && (
-            <button
-              onClick={() => handleStatusChange("in_progress")}
-              disabled={statusUpdating}
-              className="w-full py-4 rounded-2xl text-lg font-bold text-field-700 bg-field-50 hover:bg-field-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
-              Reopen Job
-            </button>
+            <>
+              <button
+                onClick={() => handleStatusChange("in_progress")}
+                disabled={statusUpdating || invoiced}
+                className="w-full py-4 rounded-2xl text-lg font-bold text-field-700 bg-field-50 hover:bg-field-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                Reopen Job
+              </button>
+              {invoiced && (
+                <p className="text-base text-stone-400 text-center -mt-1.5">This job has been invoiced and can't be reopened</p>
+              )}
+            </>
           )}
           {canManageJobs && (
-            <button
-              onClick={async () => {
-                if (!confirm(`Delete "${job.title}"? This will also delete all work logs for this job.`)) return;
-                try { await api.deleteJob(job.id); await refresh(); onBack(); } catch (err: any) { alert("Error: " + err.message); }
-              }}
-              className="w-full py-4 rounded-2xl text-lg font-bold text-red-700 bg-red-50 hover:bg-red-600 hover:text-white transition"
-            >
-              Delete Job
-            </button>
+            <>
+              <button
+                onClick={async () => {
+                  if (!confirm(`Delete "${job.title}"? This will also delete all work logs for this job.`)) return;
+                  try { await api.deleteJob(job.id); await refresh(); onBack(); } catch (err: any) { alert("Error: " + err.message); }
+                }}
+                disabled={invoiced}
+                className="w-full py-4 rounded-2xl text-lg font-bold text-red-700 bg-red-50 hover:bg-red-600 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-50 disabled:hover:text-red-700 transition"
+              >
+                Delete Job
+              </button>
+              {invoiced && (
+                <p className="text-base text-stone-400 text-center -mt-1.5">This job has been invoiced and can't be deleted</p>
+              )}
+            </>
           )}
         </div>
       </Card>
@@ -1718,6 +1805,17 @@ function CustomersView() {
     setEditFieldSaving(false);
   };
 
+  const customerFilterColumns: ColumnFilter<any>[] = [
+    { key: "name", label: "Name", get: (c) => c.name || "" },
+    { key: "contact", label: "Contact", get: (c) => c.contact || "" },
+    { key: "phone", label: "Phone", get: (c) => c.phone || "" },
+    { key: "email", label: "Email", get: (c) => c.email || "" },
+    { key: "fields", label: "Fields", get: (c) => String((c.fields || []).length) },
+    { key: "acres", label: "Acres", get: (c) => String((c.fields || []).reduce((s: number, f: any) => s + Number(f.hectares), 0)) },
+  ];
+  const { filters: custColFilters, setFilter: setCustColFilter, clearFilters: clearCustFilters, filtered: filteredCustomers, active: custFiltersActive } =
+    useColumnFilters(customers, customerFilterColumns);
+
   return (
     <div>
       <PageHeader
@@ -1725,6 +1823,12 @@ function CustomersView() {
         subtitle={`${customers.length} customers`}
         action={<Btn onClick={openCreate}>+ Add Customer</Btn>}
       />
+
+      {custFiltersActive && (
+        <div className="mb-4">
+          <Btn variant="secondary" onClick={clearCustFilters} className="!px-4 !py-2 !text-base">Reset Filters</Btn>
+        </div>
+      )}
 
       {/* Desktop table */}
       <Card className="overflow-hidden hidden lg:block">
@@ -1735,9 +1839,10 @@ function CustomersView() {
                 <th key={h} className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-stone-500">{h}</th>
               ))}
             </tr>
+            <FilterRow columns={customerFilterColumns} filters={custColFilters} onChange={setCustColFilter} trailingCells={1} />
           </thead>
           <tbody>
-            {customers.map((c: any) => {
+            {filteredCustomers.map((c: any) => {
               const custFields = (c.fields || []);
               const totalHa = custFields.reduce((s: number, f: any) => s + Number(f.hectares), 0);
               const isExpanded = expandedId === c.id;
@@ -1793,11 +1898,19 @@ function CustomersView() {
             })}
           </tbody>
         </table>
+        {filteredCustomers.length === 0 && (
+          <div className="text-center py-12">
+            <div className="text-stone-400 text-sm mb-3">
+              {customers.length === 0 ? "No customers yet" : "No customers match your filters"}
+            </div>
+            {custFiltersActive && <Btn variant="secondary" onClick={clearCustFilters}>Reset Filters</Btn>}
+          </div>
+        )}
       </Card>
 
       {/* Mobile cards */}
       <div className="lg:hidden space-y-2.5">
-        {customers.map((c: any) => {
+        {filteredCustomers.map((c: any) => {
           const custFields = (c.fields || []);
           const totalHa = custFields.reduce((s: number, f: any) => s + Number(f.hectares), 0);
           const isExpanded = expandedId === c.id;
@@ -1839,6 +1952,14 @@ function CustomersView() {
             </Card>
           );
         })}
+        {filteredCustomers.length === 0 && (
+          <div className="text-center py-12">
+            <div className="text-stone-400 text-base mb-3">
+              {customers.length === 0 ? "No customers yet" : "No customers match your filters"}
+            </div>
+            {custFiltersActive && <Btn variant="secondary" onClick={clearCustFilters}>Reset Filters</Btn>}
+          </div>
+        )}
       </div>
 
       {/* Customer Form Modal */}
@@ -1968,7 +2089,22 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
     setEditSaving(false);
   };
 
-  const filteredInvoices = filter === "all" ? invoices : (filter === "unpaid" ? invoices.filter((i: any) => i.status !== "paid") : invoices.filter((i: any) => i.status === filter));
+  const statusFilteredInvoices = filter === "all" ? invoices : (filter === "unpaid" ? invoices.filter((i: any) => i.status !== "paid") : invoices.filter((i: any) => i.status === filter));
+
+  const invoiceFilterColumns: ColumnFilter<any>[] = [
+    { key: "number", label: "Invoice #", get: (i) => i.invoiceNumber || "" },
+    { key: "customer", label: "Customer", get: (i) => i.customer?.name || "" },
+    { key: "date", label: "Date", get: (i) => fmtDate(i.invoiceDate) },
+    { key: "due", label: "Due", get: (i) => fmtDate(i.dueDate) },
+    { key: "subtotal", label: "Subtotal", get: (i) => fmtCurrency(Number(i.subtotal)) },
+    { key: "vat", label: "VAT", get: (i) => fmtCurrency(Number(i.vat)) },
+    { key: "total", label: "Total", get: (i) => fmtCurrency(Number(i.total)) },
+    { key: "status", label: "Status", get: (i) => statusLabel(i.status) },
+  ];
+  const { filters: invColFilters, setFilter: setInvColFilter, clearFilters: clearInvFilters, filtered: filteredInvoices, active: invFiltersActive } =
+    useColumnFilters(statusFilteredInvoices, invoiceFilterColumns);
+  const anyInvoiceFilterActive = filter !== "all" || invFiltersActive;
+  const resetInvoiceFilters = () => { setFilter("all"); clearInvFilters(); };
 
   // Completed and not already on an invoice — the pool available to invoice
   const uninvoicedCompletedJobs = jobs.filter((j: any) => j.status === "completed" && (j._count?.invoiceItems ?? 0) === 0);
@@ -2045,6 +2181,16 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
     }
   };
 
+  const handleDeleteInvoice = async (id: number, invoiceNumber: string) => {
+    if (!confirm(`Delete invoice ${invoiceNumber}? This cannot be undone.`)) return;
+    try {
+      await api.deleteInvoice(id);
+      await refresh();
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    }
+  };
+
   const handleDownload = async (invoiceId: number, invoiceNumber: string, format: "docx" | "pdf") => {
     try {
       const response = await fetch(`/api/invoices/${invoiceId}/${format}`);
@@ -2097,13 +2243,16 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
         </Card>
       )}
 
-      <div className="flex gap-1.5 mb-5 flex-wrap">
+      <div className="flex gap-1.5 mb-5 flex-wrap items-center">
         {["all", "unpaid", "draft", "approved", "sent", "paid"].map(f => (
           <button key={f} onClick={() => setFilter(f)}
             className={`px-4 py-2 rounded-lg text-base font-semibold transition ${filter === f ? "bg-field-100 text-field-700" : "text-stone-500 hover:bg-stone-100"}`}>
             {f === "all" ? "All" : f === "unpaid" ? "Unpaid" : statusLabel(f)}
           </button>
         ))}
+        {anyInvoiceFilterActive && (
+          <Btn variant="secondary" onClick={resetInvoiceFilters} className="!px-4 !py-2 !text-base">Reset Filters</Btn>
+        )}
       </div>
 
       {filteredInvoices.length > 0 ? (
@@ -2117,6 +2266,7 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                     <th key={h} className="text-left px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-stone-500">{h}</th>
                   ))}
                 </tr>
+                <FilterRow columns={invoiceFilterColumns} filters={invColFilters} onChange={setInvColFilter} trailingCells={1} />
               </thead>
               <tbody>
                 {filteredInvoices.map((inv: any) => (
@@ -2143,6 +2293,7 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                               <button onClick={() => handleApprove(inv.id)} className="px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition">Approve</button>
                             )}
                             <button onClick={() => handleReject(inv.id)} className="px-2.5 py-1.5 text-xs font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100 transition">Reject</button>
+                            <button onClick={() => handleDeleteInvoice(inv.id, inv.invoiceNumber)} className="px-2.5 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition">Delete</button>
                           </>
                         )}
                         {inv.status === "approved" && (
@@ -2185,6 +2336,7 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
                     <button onClick={() => handleApprove(inv.id)} className="px-2.5 py-1.5 text-base font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition">Approve</button>
                   )}
                   {inv.status === "draft" && <button onClick={() => handleReject(inv.id)} className="px-2.5 py-1.5 text-base font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100 transition">Reject</button>}
+                  {inv.status === "draft" && <button onClick={() => handleDeleteInvoice(inv.id, inv.invoiceNumber)} className="px-2.5 py-1.5 text-base font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition">Delete</button>}
                   {inv.status === "approved" && <button onClick={() => handleStatusUpdate(inv.id, "sent")} className="px-2.5 py-1.5 text-base font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition">Send</button>}
                   {inv.status === "sent" && <button onClick={() => handleStatusUpdate(inv.id, "paid")} className="px-2.5 py-1.5 text-base font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition">Mark Paid</button>}
                   <button onClick={() => handleDownload(inv.id, inv.invoiceNumber, "docx")} className="px-2.5 py-1.5 text-base font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition">Word</button>
@@ -2196,7 +2348,10 @@ function InvoicesView({ initialFilter }: { initialFilter?: string }) {
         </>
       ) : (
         <Card className="p-12 text-center">
-          <div className="text-stone-400 text-base">No invoices yet. Generate one from completed jobs.</div>
+          <div className="text-stone-400 text-base mb-3">
+            {invoices.length === 0 ? "No invoices yet. Generate one from completed jobs." : "No invoices match your filters."}
+          </div>
+          {anyInvoiceFilterActive && <Btn variant="secondary" onClick={resetInvoiceFilters}>Reset Filters</Btn>}
         </Card>
       )}
 
@@ -2476,6 +2631,9 @@ function MachinesView() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: "", machineType: "", registration: "" });
+  const [nameFilter, setNameFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const machineTypes = ["Tractor", "Combine", "Drill", "Sprayer", "Plough", "Baler", "Trailer", "Hedge Cutter", "Roller", "Subsoiler", "Muck Spreader", "Other"];
 
@@ -2529,6 +2687,15 @@ function MachinesView() {
     }
   };
 
+  const filtersActive = !!nameFilter.trim() || typeFilter !== "all" || statusFilter !== "all";
+  const clearFilters = () => { setNameFilter(""); setTypeFilter("all"); setStatusFilter("all"); };
+  const filteredMachines = machines.filter((m: any) => {
+    if (nameFilter.trim() && !m.name.toLowerCase().includes(nameFilter.trim().toLowerCase())) return false;
+    if (typeFilter !== "all" && m.machineType !== typeFilter) return false;
+    if (statusFilter !== "all" && (statusFilter === "active") !== !!m.active) return false;
+    return true;
+  });
+
   return (
     <div>
       <PageHeader
@@ -2536,8 +2703,34 @@ function MachinesView() {
         subtitle={`${machines.length} machines`}
         action={<Btn onClick={openCreate}>+ Add Machine</Btn>}
       />
+
+      <Card className="p-3 mb-4">
+        <div className="flex flex-wrap gap-2.5 items-center">
+          <input
+            value={nameFilter}
+            onChange={e => setNameFilter(e.target.value)}
+            placeholder="Filter by name..."
+            className="px-3 py-2 text-base border border-stone-300 rounded-lg bg-white focus:outline-none focus:border-field-500 focus:ring-2 focus:ring-field-500/20 transition placeholder:text-stone-400 flex-1 min-w-[160px]"
+          />
+          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+            className="px-3 py-2 text-base border border-stone-300 rounded-lg bg-white focus:outline-none focus:border-field-500 focus:ring-2 focus:ring-field-500/20 transition">
+            <option value="all">All types</option>
+            {machineTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            className="px-3 py-2 text-base border border-stone-300 rounded-lg bg-white focus:outline-none focus:border-field-500 focus:ring-2 focus:ring-field-500/20 transition">
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          {filtersActive && (
+            <Btn variant="secondary" onClick={clearFilters} className="!px-4 !py-2 !text-base">Reset Filters</Btn>
+          )}
+        </div>
+      </Card>
+
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {machines.map((m: any) => (
+        {filteredMachines.map((m: any) => (
           <Card key={m.id} className="p-5">
             <div className="flex justify-between items-start gap-2 mb-2">
               <div className="font-bold text-lg min-w-0 flex-1 truncate">{m.name}</div>
@@ -2557,6 +2750,14 @@ function MachinesView() {
             </div>
           </Card>
         ))}
+        {filteredMachines.length === 0 && (
+          <div className="col-span-full text-center py-12">
+            <div className="text-stone-400 text-base mb-3">
+              {machines.length === 0 ? "No machines yet" : "No machines match your filters"}
+            </div>
+            {filtersActive && <Btn variant="secondary" onClick={clearFilters}>Reset Filters</Btn>}
+          </div>
+        )}
       </div>
 
       <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title={editingId ? "Edit Machine" : "Add Machine"}>
@@ -2588,7 +2789,12 @@ function MachinesView() {
 // ============================================================
 // DATA TOOLS — bulk CSV import/export (Admin only)
 // ============================================================
-type ImportResult = { created: number; updated: number; errors: { row: number; message: string }[] };
+type ImportResult = {
+  created: number;
+  updated: number;
+  errors: { row: number; message: string }[];
+  warnings: { row: number; message: string }[];
+};
 
 function DataToolCard({ label, count, columnsHint, exportUrl, importUrl, filename, onImported }: {
   label: string; count: number; columnsHint: string; exportUrl: string; importUrl: string; filename: string;
@@ -2673,7 +2879,15 @@ function DataToolCard({ label, count, columnsHint, exportUrl, importUrl, filenam
           <div className="text-base font-semibold text-stone-700">
             {result.created} created · {result.updated} updated
             {result.errors.length > 0 && ` · ${result.errors.length} error${result.errors.length === 1 ? "" : "s"}`}
+            {result.warnings.length > 0 && ` · ${result.warnings.length} to check`}
           </div>
+          {result.warnings.length > 0 && (
+            <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+              {result.warnings.map((w, i) => (
+                <div key={i} className="text-sm text-amber-600">Row {w.row}: {w.message}</div>
+              ))}
+            </div>
+          )}
           {result.errors.length > 0 && (
             <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
               {result.errors.map((e, i) => (

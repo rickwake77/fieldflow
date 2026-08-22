@@ -90,6 +90,16 @@ export async function PATCH(request: Request, { params }: Params) {
       }
     }
 
+    // Once a completed job has been billed, reopening it would let its
+    // logged quantity change under an invoice that's already gone out —
+    // block moving it off "completed" while any invoice items reference it.
+    if (existing.status === "completed" && body.status && body.status !== "completed") {
+      const invoicedCount = await prisma.invoiceItem.count({ where: { jobId: Number(id) } });
+      if (invoicedCount > 0) {
+        return error("This job has been invoiced and can't be reopened");
+      }
+    }
+
     const { fieldIds, ...scalarBody } = body;
     const data: Record<string, unknown> = { ...scalarBody };
     if (body.plannedDate) data.plannedDate = new Date(body.plannedDate);
@@ -121,6 +131,14 @@ export async function DELETE(_request: Request, { params }: Params) {
     if (!isManager((session.user as any).role)) return error("Not authorized", 403);
 
     const { id } = await params;
+
+    // A job on an invoice is part of that invoice's paper trail — deleting
+    // it would silently orphan the invoice item instead.
+    const invoicedCount = await prisma.invoiceItem.count({ where: { jobId: Number(id) } });
+    if (invoicedCount > 0) {
+      return error("This job has been invoiced and can't be deleted");
+    }
+
     // Delete related logs first
     await prisma.jobLog.deleteMany({ where: { jobId: Number(id) } });
     await prisma.job.delete({ where: { id: Number(id) } });

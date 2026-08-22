@@ -49,6 +49,16 @@ export async function POST(request: Request) {
           await prisma.jobType.update({ where: { id }, data });
           return "updated";
         }
+        // No id in the row -- match by name within this organisation so
+        // re-importing the same file updates the existing job type instead
+        // of creating a duplicate.
+        const existing = await prisma.jobType.findFirst({
+          where: { organisationId, name: { equals: data.name, mode: "insensitive" } },
+        });
+        if (existing) {
+          await prisma.jobType.update({ where: { id: existing.id }, data });
+          return "updated";
+        }
         await prisma.jobType.create({ data: { ...data, organisationId } });
         return "created";
       }

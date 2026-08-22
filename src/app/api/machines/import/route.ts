@@ -43,7 +43,20 @@ export async function POST(request: Request) {
           await prisma.machine.update({ where: { id }, data });
           return "updated";
         }
-        await prisma.machine.create({ data: { ...data, organisationId } });
+        // No id in the row. Unlike customers/job types, machine names can
+        // legitimately repeat (two of the same model) -- so a name match
+        // isn't auto-updated, just flagged for the admin to check, and the
+        // row is still created as a new machine.
+        const existing = await prisma.machine.findFirst({
+          where: { organisationId, name: { equals: data.name, mode: "insensitive" } },
+        });
+        const created = await prisma.machine.create({ data: { ...data, organisationId } });
+        if (existing) {
+          return {
+            outcome: "created",
+            warning: `A machine named "${data.name}" already existed (id ${existing.id}) -- created as a new machine (id ${created.id}). If this was meant to update the existing one, delete this row and re-import with an id column.`,
+          };
+        }
         return "created";
       }
     );

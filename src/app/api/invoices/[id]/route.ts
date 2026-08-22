@@ -123,6 +123,10 @@ export async function DELETE(_request: Request, { params }: Params) {
     if (response) return response;
 
     const { id } = await params;
+    const existing = await prisma.invoice.findUnique({ where: { id: Number(id) } });
+    if (!existing) return error("Invoice not found", 404);
+    if (existing.status !== "draft") return error("Only draft invoices can be deleted");
+
     await prisma.invoiceItem.deleteMany({ where: { invoiceId: Number(id) } });
     await prisma.invoice.delete({ where: { id: Number(id) } });
     return success({ deleted: true });

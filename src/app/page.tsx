@@ -256,15 +256,21 @@ function WizardCardList({ items, isSelected, onToggle, renderMain, renderSub, sh
 // Work Package, in the style of the Log Work wizard. Owns all its own form
 // state; JobsView just controls whether it's open.
 // ============================================================
+const jobTypeBillingUnits = ["acre", "hectare", "hour", "item", "job", "tonne"];
+
 function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean; onClose: () => void; skipModeSelect?: boolean }) {
-  const { customers, fields, jobTypes, users, jobGroups, refresh } = useApp();
+  const { customers, fields, jobTypes, users, jobGroups, currentUser, refresh } = useApp();
   const assignableUsers = users.filter((u: any) => u.active);
   const templates = jobGroups.filter((g: any) => g.isTemplate);
+  const isAdmin = currentUser?.role === "admin";
 
   const [createMode, setCreateMode] = useState<"single" | "package">("single");
   const [wizardStep, setWizardStep] = useState(0);
   const [customerSearch, setCustomerSearch] = useState("");
   const [jobTypeSearch, setJobTypeSearch] = useState("");
+  const [addingJobType, setAddingJobType] = useState(false);
+  const [savingJobType, setSavingJobType] = useState(false);
+  const [newJobType, setNewJobType] = useState({ name: "", billingUnit: "acre", defaultRate: "", vatApplicable: true });
   const [creating, setCreating] = useState(false);
   const [packageSaving, setPackageSaving] = useState(false);
 
@@ -298,6 +304,8 @@ function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean;
     setTitleAuto(true);
     setAddingField(false);
     setNewField({ fieldName: "", hectares: "" });
+    setAddingJobType(false);
+    setNewJobType({ name: "", billingUnit: "acre", defaultRate: "", vatApplicable: true });
     setPackageForm(blankPackageForm());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
@@ -368,6 +376,27 @@ function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean;
       alert("Error adding field: " + err.message);
     }
     setSavingField(false);
+  };
+
+  // Adds a one-off job type on the fly (admin only — creating a type sets its
+  // billing rate, same restriction as the standalone Job Types screen)
+  const handleAddJobType = async () => {
+    setSavingJobType(true);
+    try {
+      const created = await api.createJobType({
+        name: newJobType.name,
+        billingUnit: newJobType.billingUnit,
+        defaultRate: Number(newJobType.defaultRate),
+        vatApplicable: newJobType.vatApplicable,
+      });
+      await refresh();
+      setForm(f => ({ ...f, jobTypeId: String(created.id), unitType: created.billingUnit }));
+      setAddingJobType(false);
+      setNewJobType({ name: "", billingUnit: "acre", defaultRate: "", vatApplicable: true });
+    } catch (err: any) {
+      alert("Error adding job type: " + err.message);
+    }
+    setSavingJobType(false);
   };
 
   // Picking a template seeds the item list client-side — no server round-trip needed
@@ -479,18 +508,51 @@ function CreateJobWizard({ isOpen, onClose, skipModeSelect }: { isOpen: boolean;
             />
 
             <div className="text-sm font-bold uppercase tracking-wider text-stone-400 mb-2 mt-5">Job Type</div>
-            {jobTypes.length > 6 && (
-              <input className={`${inputClass} mb-2`} placeholder="Search job types..." value={jobTypeSearch} onChange={e => setJobTypeSearch(e.target.value)} />
+            {addingJobType ? (
+              <div className="border-2 border-stone-200 rounded-2xl p-4 bg-stone-50 space-y-2.5">
+                <input className={wizardInputClass} placeholder="Job type name (e.g. Fence Repair)" autoFocus value={newJobType.name} onChange={e => setNewJobType(f => ({ ...f, name: e.target.value }))} />
+                <div className="grid grid-cols-2 gap-2.5">
+                  <select className={wizardInputClass} value={newJobType.billingUnit} onChange={e => setNewJobType(f => ({ ...f, billingUnit: e.target.value }))}>
+                    {jobTypeBillingUnits.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                  <input className={wizardInputClass} type="number" step="0.01" placeholder="Rate (£)" value={newJobType.defaultRate} onChange={e => setNewJobType(f => ({ ...f, defaultRate: e.target.value }))} />
+                </div>
+                <label className="flex items-center gap-2.5 cursor-pointer select-none px-1">
+                  <input type="checkbox" className="accent-field-600 w-4 h-4" checked={newJobType.vatApplicable} onChange={e => setNewJobType(f => ({ ...f, vatApplicable: e.target.checked }))} />
+                  <span className="text-base text-stone-600">VAT applicable (20%)</span>
+                </label>
+                <div className="flex gap-2.5">
+                  <button type="button" onClick={() => { setAddingJobType(false); setNewJobType({ name: "", billingUnit: "acre", defaultRate: "", vatApplicable: true }); }}
+                    className="flex-1 py-3.5 rounded-2xl text-base font-bold text-stone-500 bg-white border-2 border-stone-200 hover:bg-stone-100 transition">
+                    Cancel
+                  </button>
+                  <button type="button" onClick={handleAddJobType} disabled={savingJobType || !newJobType.name || !newJobType.defaultRate}
+                    className="flex-[2] py-3.5 rounded-2xl text-base font-bold text-white bg-field-700 hover:bg-field-800 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                    {savingJobType ? "Saving..." : "Save Job Type"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {jobTypes.length > 6 && (
+                  <input className={`${inputClass} mb-2`} placeholder="Search job types..." value={jobTypeSearch} onChange={e => setJobTypeSearch(e.target.value)} />
+                )}
+                <WizardCardList
+                  className="space-y-2 max-h-[24vh] overflow-y-auto"
+                  items={filteredJobTypes}
+                  isSelected={jt => String(jt.id) === form.jobTypeId}
+                  onToggle={jt => handleJobTypeChange(String(jt.id))}
+                  renderMain={jt => jt.name}
+                  renderSub={jt => `${jt.billingUnit} · £${Number(jt.defaultRate)}`}
+                  emptyText="No job types match"
+                />
+                {isAdmin && (
+                  <button type="button" onClick={() => setAddingJobType(true)} className="mt-3 w-full py-3.5 rounded-2xl text-base font-bold text-field-700 bg-field-50 hover:bg-field-100 transition">
+                    + Other — add a one-off job type
+                  </button>
+                )}
+              </>
             )}
-            <WizardCardList
-              className="space-y-2 max-h-[24vh] overflow-y-auto"
-              items={filteredJobTypes}
-              isSelected={jt => String(jt.id) === form.jobTypeId}
-              onToggle={jt => handleJobTypeChange(String(jt.id))}
-              renderMain={jt => jt.name}
-              renderSub={jt => `${jt.billingUnit} · £${Number(jt.defaultRate)}`}
-              emptyText="No job types match"
-            />
 
             <WizardNav onBack={() => setWizardStep(0)} onNext={() => setWizardStep(2)} nextDisabled={!form.customerId || !form.jobTypeId} />
           </>
